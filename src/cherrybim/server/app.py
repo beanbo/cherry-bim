@@ -21,6 +21,7 @@ import math
 import os
 import time
 import uuid
+import warnings
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -40,7 +41,7 @@ from .store import PLACE_KINDS, Store, StoreError
 log = logging.getLogger("cherrybim.server")
 STATIC = Path(__file__).parent / "static"
 TOGGLE_DOMAINS = {"light", "switch", "fan"}          # что можно щёлкать из просмотрщика; замков тут нет
-DEFAULT_ALLOW = "127.0.0.1/32,::1/128,172.30.32.0/23"
+DEFAULT_ALLOW = "127.0.0.1/32,::1/128,172.30.32.1/32,172.30.32.2/32"   # аддон HA: ядро и Supervisor (ingress)
 MAX_PHOTO = 12 * 2 ** 20
 
 PHOTO_PROMPT = (
@@ -463,6 +464,7 @@ def main(argv=None) -> None:
     ap.add_argument("--mcp-name", default=env("CHERRYBIM_MCP_NAME", "cherrybim"))
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    warnings.filterwarnings("ignore", message=".*incomplete definition.*")    # шум pydantic-settings из mcp
     store = Store(a.packages, a.data, Privacy(a.audience))
     srv = Server(store, HA(), media_dir=a.media, ai_task=a.ai_task, mcp_name=a.mcp_name, allow=a.allow)
     log.info("пакетов %d, сущностей %d, вещей %d", len(store.base), len(store.twin.by_id), len(store.items.entities))

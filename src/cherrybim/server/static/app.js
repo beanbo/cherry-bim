@@ -607,9 +607,12 @@ function fmt(v) {
   if (typeof v === "boolean") return v ? "да" : "нет";
   return esc(v);
 }
+const ORIGIN = { manual: "записано вручную", voice: "записано голосом", photo: "по фото", ofm: "OpenFurnitureMaker",
+  dreame: "карта пылесоса", brti: "БРТИ", osm: "OpenStreetMap", ha: "Home Assistant", measured: "замер" };
 function srcText(s) {
   const acc = s.acc != null ? ` ±${s.acc >= 1 ? s.acc + " м" : Math.round(s.acc * 100) + " см"}` : "";
-  return esc(`${s.from}${acc}${s.at ? ", " + s.at : ""}`);
+  const from = ORIGIN[s.from] || s.from.replace(/^project:/, "проект ").replace("zastroyshchik", "план застройщика");
+  return esc(`${from}${acc}${s.at ? ", " + s.at : ""}`);
 }
 function bound(e) {
   const out = [];
@@ -788,7 +791,7 @@ function pickPlace(item) {
   ul.addEventListener("click", async ev => {
     const li = ev.target.closest("li[data-id]");
     if (!li) return;
-    try { await send(`api/items/${item.id}`, { place: li.dataset.id }, "PATCH"); toast("Переложил"); await reload(item.id); }
+    try { await send(`api/items/${item.id}`, { place: li.dataset.id }, "PATCH"); toast("Переложил"); await reload(item.id, true); }
     catch (err) { toast(err.message); }
   });
   inp.focus();
@@ -974,7 +977,7 @@ function setHash() {
   history.replaceState(null, "", h ? "#" + h : location.pathname + location.search);
 }
 
-async function reload(keepId) {
+async function reload(keepId, flyTo = false) {
   const cam = { p: camera.position.clone(), t: controls.target.clone() };
   const data = await api("api/twin");
   index(data);
@@ -983,7 +986,7 @@ async function reload(keepId) {
   controls.target.copy(cam.t);
   status();
   const id = keepId && S.by.has(keepId) ? keepId : null;
-  if (id) select(id, { fly: false }); else if (S.sel) select(null);
+  if (id) select(id, { fly: flyTo }); else if (S.sel) select(null);
 }
 
 async function start() {
