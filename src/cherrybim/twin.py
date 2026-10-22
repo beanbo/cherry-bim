@@ -107,28 +107,44 @@ class Twin:
         return m
 
     # ── поиск ────────────────────────────────────────────────────────────────
-    def search(self, query: str, audience: Privacy = Privacy.owner, limit: int = 10) -> list[tuple[Entity, str]]:
-        """Простой поиск по названию, синонимам, тегам и пути; падежи отрезаются грубым стеммингом."""
-        toks = [_stem(t) for t in _norm(query).split() if len(t) > 1 or t.isdigit()]   # «автомат 6»
+    def rank(self, query: str, audience: Privacy = Privacy.owner, complete: bool = False) -> list[tuple[int, Entity]]:
+        """Сущности с очками, лучшие первыми. Слово запроса ищется в названии и синонимах (3 очка),
+        в названиях родителей и того, на что ссылается сущность (2: «ящик 2 в спальне», «обои в спальне»),
+        в тегах и свойствах (1). Найдены все слова — ещё 10, все в названии — ещё 5. complete — только те,
+        где нашлись все слова. Падежи отрезаются грубым стеммингом. Однобуквенные слова необязательны:
+        «в», «и» — предлоги, а «секция б» — метка, и тогда она добавляет очки."""
+        words = _norm(query).split()
+        toks = [_stem(t) for t in words if len(t) > 1 or t.isdigit()]   # «автомат 6»
+        opt = [t for t in words if len(t) == 1 and not t.isdigit()]
         if not toks:
             return []
         scored = []
         for e in self.visible_to(audience):
+            chain = self.ancestors(e.id)
             title = _norm(" ".join([e.name] + e.aliases)).split()
+            ctx = _norm(" ".join([a.name for a in chain] + [self.by_id[r.to].name for r in e.refs
+                                                             if r.to in self.by_id])).split()
             body = _norm(" ".join(e.tags + [str(v) for v in e.props.values() if isinstance(v, str)])).split()
-            sc, hit_all = 0, True
+            sc = own = in_title = miss = 0
             for t in toks:
                 match = (lambda w: w == t) if t.isdigit() else (lambda w: w.startswith(t))   # «6» не равно «16»
                 if any(match(w) for w in title):
-                    sc += 3
+                    sc, own, in_title = sc + 3, own + 1, in_title + 1
+                elif any(match(w) for w in ctx):
+                    sc += 2
                 elif any(match(w) for w in body):
-                    sc += 1
+                    sc, own = sc + 1, own + 1
                 else:
-                    hit_all = False
-            if sc:
-                scored.append((sc + (10 if hit_all else 0), e))
-        scored.sort(key=lambda x: -x[0])
-        return [(e, self.path(e.id)) for _, e in scored[:limit]]
+                    miss += 1
+            sc += sum(3 if t in title else 1 if t in ctx else 0 for t in opt)
+            if own and not (complete and miss):   # одни родители не в счёт: «спальня» вернула бы всё внутри
+                scored.append((sc + (10 if not miss else 0) + (5 if in_title == len(toks) else 0), len(chain), e))
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        return [(s, e) for s, _, e in scored]
+
+    def search(self, query: str, audience: Privacy = Privacy.owner, limit: int = 10) -> list[tuple[Entity, str]]:
+        """Лучшие совпадения с путями от корня (см. rank)."""
+        return [(e, self.path(e.id)) for _, e in self.rank(query, audience)[:limit]]
 
 
 def _norm(s: str) -> str:

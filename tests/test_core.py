@@ -6,6 +6,7 @@ import pytest
 
 from cherrybim import Kind, Package, Privacy, ifc_guid, make_id
 from cherrybim.export import to_geojson
+from cherrybim.geo import footprint
 from cherrybim.kinds import as_json, lookup
 
 
@@ -60,6 +61,19 @@ def test_search_single_digit_is_exact(twin):
     assert hits[0][0].key == "kv12.bedroom.wardrobe.dr3"
 
 
+def test_search_single_letter_label_is_optional(twin):
+    assert twin.search("дрель в спальне", Privacy.household)[0][0].key == "kv12.bedroom.wardrobe.dr2.drill"
+    assert twin.search("ящик 2 б", Privacy.household)[0][0].key == "kv12.bedroom.wardrobe.dr2"
+
+
+def test_search_uses_parent_names(twin):
+    hits = twin.search("дрель в спальне", Privacy.household)
+    assert hits[0][0].key == "kv12.bedroom.wardrobe.dr2.drill"
+    ranked = twin.rank("ящик", Privacy.household)
+    assert ranked[0][0] == ranked[1][0]                     # «ящик» — неоднозначно, ящиков четыре
+    assert all(e.kind != Kind.space for _, e in twin.rank("ящик", Privacy.household))   # комнаты не всплывают
+
+
 def test_geojson_respects_audience(twin):
     pub = to_geojson(twin, Privacy.public)
     keys = {f["properties"]["key"] for f in pub["features"]}
@@ -87,3 +101,14 @@ def test_ifc_export(tmp_path, twin):
     log = ifcopenshell.validate.json_logger()
     ifcopenshell.validate.validate(ifcopenshell.open(str(out)), log)
     assert log.statements == []
+
+
+def test_footprint_closes_doorways_and_keeps_corners():
+    a = [(0, 0), (4, 0), (4, 3), (0, 3)]
+    b = [(4.16, 0), (8, 0), (8, 3), (4.16, 3)]           # дверной проём 16 см между комнатами
+    c = [(0, 3), (2, 3), (2, 6), (0, 6)]
+    assert sorted(footprint([a, b])) == [(0, 0), (0, 3), (8, 0), (8, 3)]
+    fp = footprint([a, b, c])
+    assert len(fp) == 6 and (2.0, 3.0) in fp
+    area = sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(fp, fp[1:] + fp[:1])) / 2
+    assert math.isclose(area, 8 * 3 + 2 * 3, abs_tol=1e-6)  # против часовой: площадь положительная

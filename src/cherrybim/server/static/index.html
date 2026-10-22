@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Квартира</title>
+<link rel="stylesheet" href="static/style.css">
+<script type="importmap">{"imports": {"three": "./static/vendor/three.module.min.js"}}</script>
+</head>
+<body>
+<header id="bar">
+  <div id="searchbox">
+    <input id="q" type="search" placeholder="Что ищем? дрель, ящик 2, обои, автомат…" autocomplete="off" enterkeyhint="search">
+    <ul id="results" hidden></ul>
+  </div>
+  <nav id="views" aria-label="Масштаб">
+    <button data-view="unit" class="on">Квартира</button>
+    <button data-view="house">Дом</button>
+    <button data-view="site">Квартал</button>
+  </nav>
+  <div id="toggles">
+    <button id="t-cut" class="on" title="Срезать стены, чтобы видеть внутрь">Срез</button>
+    <button id="t-mep" class="on" title="Трубы, кабели, розетки, приборы">Инженерия</button>
+    <button id="t-tree" title="Всё по комнатам списком">Список</button>
+  </div>
+</header>
+<main id="stage">
+  <canvas id="c"></canvas>
+  <div id="labels" aria-hidden="true"></div>
+</main>
+<aside id="card" hidden></aside>
+<footer id="status"><span id="dot"></span><span id="stxt">загрузка…</span></footer>
+<div id="toast" hidden></div>
+<script type="module" src="static/app.js"></script>
+</body>
+</html>

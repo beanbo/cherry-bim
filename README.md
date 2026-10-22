@@ -4,7 +4,7 @@
 
 *Open-source core for residential digital twins, from a city block down to a drawer. A compact JSON model aligned with IFC 4.3, GeoJSON/IMDF, CityJSON and Brick. Python (pydantic) is the source of truth, JSON Schema serves other languages, and IFC4 export goes through IfcOpenShell. Docs are in Russian.*
 
-> Статус: v0.1, ранний черновик. Формат может меняться до 1.0.
+> Статус: v0.2, ранняя версия. Формат может меняться до 1.0.
 
 ## Зачем
 
@@ -56,12 +56,23 @@ for entity, path in twin.search("дрель"):
 public_map = to_geojson(twin, Privacy.public)    # квартиры в публичной карте нет
 ```
 
+### Сервер, 3D и голос
+
+```
+pip install -e .[server]
+python examples/demo/build_demo.py
+python -m cherrybim.server --packages examples/demo --data ./data --port 8099 --allow 127.0.0.1/32
+```
+
+Откройте http://127.0.0.1:8099/: 3D-план (виды «Квартира», «Дом», «Квартал»), поиск, карточки, учёт вещей. По адресу `/mcp` тот же процесс отдаёт MCP-инструменты `find`, `contents`, `add_item`, `move_item`, `remove_item` — их можно подключить к голосовому ассистенту. С переменными `HA_URL` и `HA_TOKEN` (или внутри аддона Home Assistant) на плане видны живые состояния привязанных сущностей. Устройство сервера — в [docs/DESIGN.md](docs/DESIGN.md#сервер-02).
+
 IFC: `pip install -e .[ifc]`, затем `from cherrybim.export_ifc import to_ifc`. IfcOpenShell не ставится на Alpine (нет колёс musllinux), поэтому для выгрузки в контейнере нужен Debian.
 
 ## Структура
 
 ```
 src/cherrybim/    model (pydantic), twin, geo, kinds, export (GeoJSON), export_ifc, io_ofm
+  server/         сервер: store (вещи), ha (Home Assistant), app (API, MCP), static/ (просмотрщик)
 schema/           JSON Schema и словарь типов — генерируются tools/export_schema.py
 examples/demo/    выдуманный пример без реальных адресов
 docs/DESIGN.md    архитектура, решения и соответствие стандартам
@@ -80,6 +91,6 @@ tests/            pytest
 
 ## Лицензия
 
-MIT, см. [LICENSE](LICENSE).
+MIT, см. [LICENSE](LICENSE). В `src/cherrybim/server/static/vendor/` лежит three.js 0.170.0 (MIT, © three.js authors).
 
 Если импортируете данные OpenStreetMap, на них действует ODbL: подпись «© OpenStreetMap contributors», а производная база распространяется на тех же условиях.

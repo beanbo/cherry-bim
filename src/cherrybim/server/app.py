@@ -1,0 +1,483 @@
+# -*- coding: utf-8 -*-
+"""Сервер Cherry BiM: 3D-просмотрщик, API вещей и состояний, MCP для голосового ассистента.
+
+    python -m cherrybim.server --packages DIR --data DIR [--port 8099]
+
+Один процесс отдаёт:
+- /            просмотрщик (static/), относительные адреса — работает и под ingress HA;
+- /api/...     двойник, поиск, вещи, живые состояния HA, свет и пылесос, фото → вещи;
+- /mcp         MCP (streamable HTTP, без сессий): найти, что внутри, положить, переложить, вычеркнуть.
+Вход только с адресов из --allow: под ingress это Supervisor и ядро HA.
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import contextlib
+import ipaddress
+import json
+import logging
+import math
+import os
+import time
+import uuid
+from pathlib import Path
+
+from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import FileResponse, JSONResponse, PlainTextResponse
+from starlette.routing import Mount, Route, WebSocketRoute
+from starlette.staticfiles import StaticFiles
+from starlette.websockets import WebSocket, WebSocketDisconnect
+
+from ..kinds import lookup
+from ..model import Kind, Privacy
+from .ha import HA, HAError
+from .store import PLACE_KINDS, Store, StoreError
+
+log = logging.getLogger("cherrybim.server")
+STATIC = Path(__file__).parent / "static"
+TOGGLE_DOMAINS = {"light", "switch", "fan"}          # что можно щёлкать из просмотрщика; замков тут нет
+DEFAULT_ALLOW = "127.0.0.1/32,::1/128,172.30.32.0/23"
+MAX_PHOTO = 12 * 2 ** 20
+
+PHOTO_PROMPT = (
+    "На фото — содержимое места хранения ({place}). Перечисли вещи, которые видны и которые хозяин может "
+    "потом искать: инструменты, документы, лекарства, зарядки, кабели, батарейки, посуду, одежду по типам. "
+    "Название короткое, по-русски, в именительном падеже, с главным признаком (цвет, размер, марка), "
+    "если он виден: «Дрель-шуруповёрт Bosch», «Батарейки AA». Похожие мелочи объединяй: «Кабели USB-C (3 шт.)». "
+    "Не выдумывай того, чего не видно. Если вещей нет или фото не про хранение, верни пустой список.")
+
+
+class _Static(StaticFiles):
+    """Статика с проверкой свежести на каждый запрос (ETag → 304): после обновления аддона
+    браузер не держит старый app.js."""
+
+    def file_response(self, *args, **kwargs):
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+
+# ── сборка приложения ────────────────────────────────────────────────────────
+class Server:
+    def __init__(self, store: Store, ha: HA, media_dir: str | None = None, ai_task: str | None = None,
+                 mcp_name: str = "cherrybim", allow: str = DEFAULT_ALLOW):
+        self.store, self.ha = store, ha
+        self.media_dir = Path(media_dir) if media_dir else None
+        self.ai_task = ai_task
+        self.allow = [ipaddress.ip_network(n.strip(), strict=False) for n in allow.split(",") if n.strip()]
+        self.clients: set[asyncio.Queue] = set()
+        self.loop: asyncio.AbstractEventLoop | None = None
+        self.vacuum = None                    # (entity, camera_id, frame_id, affine) или None
+        self.mcp = self._build_mcp(mcp_name)
+        store.listeners.append(self._twin_changed)
+        ha.listeners.append(self._state_changed)
+        self._find_vacuum()
+
+    # ── живые события в браузеры ────────────────────────────────────────────
+    def _push(self, msg: dict) -> None:
+        if not self.loop:
+            return
+        for q in list(self.clients):
+            self.loop.call_soon_threadsafe(q.put_nowait, msg)
+
+    def _twin_changed(self) -> None:
+        self._find_vacuum()
+        watch = self.store.bound_entities()
+        if watch != self.ha.watch:                        # пакет пересобрали с новыми привязками
+            self.ha.watch = watch
+            if self.loop and self.ha.connected:
+                self.loop.call_soon_threadsafe(lambda: asyncio.ensure_future(self._rewatch()))
+        self._push({"type": "twin", "version": self.store.version})
+
+    async def _rewatch(self) -> None:
+        try:
+            await self.ha.refresh()
+        except HAError as e:
+            log.warning("HA: %s", e)
+        self._push({"type": "states", "states": self.states(), "ha": self.ha_status()})
+
+    async def _state_changed(self, eid, state) -> None:
+        if eid is None:
+            self._push({"type": "states", "states": self.states(), "ha": self.ha_status()})
+        else:
+            self._push({"type": "state", "id": eid, "s": self._decorate(eid, state)})
+
+    def ha_status(self) -> dict:
+        return {"enabled": bool(self.ha.url and self.ha.token), "connected": self.ha.connected,
+                "rejected": self.ha.rejected}
+
+    def states(self) -> dict:
+        return {k: self._decorate(k, v) for k, v in self.ha.states.items()}
+
+    # ── пылесос: координаты робота ↔ участок ────────────────────────────────
+    def _find_vacuum(self) -> None:
+        self.vacuum = None
+        t = self.store.twin
+        for e in t.visible_to(self.store.audience):
+            aff = e.bind.get("dreame.affine")
+            if e.kind == Kind.device and aff and e.bind.get("dreame.camera"):
+                frame = t.by_id.get(aff["frame"]) or t.by_key.get(aff["frame"])
+                if frame:
+                    self.vacuum = (e, e.bind["dreame.camera"], frame.id, aff)
+                    return
+
+    def _robot_to_site(self, x: float, y: float, a: float | None) -> list[float]:
+        e, _, frame, aff = self.vacuum
+        (a0, a1, a2), (b0, b1, b2) = aff["X"], aff["Y"]
+        det = a0 * b1 - a1 * b0
+        fx = (b1 * (x - a2) - a1 * (y - b2)) / det       # обратная к X = a0·x + a1·y + a2, Y = b0·x + b1·y + b2
+        fy = (a0 * (y - b2) - b0 * (x - a2)) / det
+        sx, sy, sz = self.store.twin.to_site(frame, [(fx, fy, 0.0)])[0]
+        yaw = None
+        if a is not None:
+            dx, dy = math.cos(math.radians(a)), math.sin(math.radians(a))
+            ux, uy = (b1 * dx - a1 * dy) / det, (a0 * dy - b0 * dx) / det
+            m = self.store.twin.matrix(frame)
+            yaw = math.degrees(math.atan2(uy, ux) + math.atan2(m[1][0], m[0][0]))
+        return [round(sx, 3), round(sy, 3), round(sz, 3), None if yaw is None else round(yaw, 1)]
+
+    def _site_to_robot(self, sx: float, sy: float) -> tuple[int, int]:
+        _, _, frame, aff = self.vacuum
+        m = self.store.twin.matrix(frame)
+        dx, dy = sx - m[0][3], sy - m[1][3]
+        fx, fy = m[0][0] * dx + m[1][0] * dy, m[0][1] * dx + m[1][1] * dy   # поворот обратно (транспонированная)
+        (a0, a1, a2), (b0, b1, b2) = aff["X"], aff["Y"]
+        return round(a0 * fx + a1 * fy + a2), round(b0 * fx + b1 * fy + b2)
+
+    def _decorate(self, eid: str, state: dict | None) -> dict | None:
+        if state and self.vacuum and eid == self.vacuum[1]:
+            pos = state.get("attributes", {}).get("vacuum_position")
+            if pos:
+                state = dict(state, pose=self._robot_to_site(pos["x"], pos["y"], pos.get("a")))
+        return state
+
+    # ── HTTP ─────────────────────────────────────────────────────────────────
+    async def index(self, request: Request):
+        return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
+
+    async def api_twin(self, request: Request):
+        snap = self.store.snapshot()
+        snap["ha"] = self.ha_status()
+        snap["features"] = {"photos": bool(self.media_dir and self.ai_task and self.ha.enabled),
+                            "vacuum": bool(self.vacuum and self.ha.enabled), "toggle": self.ha.enabled}
+        snap["states"] = self.states()
+        return JSONResponse(snap)
+
+    async def api_search(self, request: Request):
+        q = request.query_params.get("q", "")
+        kinds = {Kind(k) for k in request.query_params.get("kinds", "").split(",") if k in Kind.__members__}
+        return JSONResponse(self.store.search(q, kinds or None, limit=int(request.query_params.get("limit", 12))))
+
+    async def api_place(self, request: Request):
+        return self._guard(lambda: self.store.contents(request.path_params["ref"]))
+
+    async def api_items(self, request: Request):
+        body = await request.json()
+        by = _user(request)
+        if request.method == "POST":
+            return self._guard(lambda: _item(self.store.add_item(body.get("name", ""), body.get("place", ""),
+                                                                  qty=body.get("qty"), note=body.get("note"),
+                                                                  tags=body.get("tags"), by=by,
+                                                                  origin=body.get("origin", "manual"))))
+        ref = request.path_params["ref"]
+
+        def patch():
+            e = self.store.update_item(ref, **{k: body[k] for k in ("name", "qty", "note", "tags", "aliases")
+                                               if k in body})
+            if body.get("place"):
+                e = self.store.move_item(e.id, body["place"], by=by)
+            return _item(e)
+        return self._guard(patch)
+
+    async def api_item_delete(self, request: Request):
+        return self._guard(lambda: {"removed": self.store.remove_item(request.path_params["ref"], by=_user(request))})
+
+    async def api_states(self, request: Request):
+        return JSONResponse({"ha": self.ha_status(), "states": self.states()})
+
+    async def api_call(self, request: Request):
+        body = await request.json()
+        eid, service = body.get("entity_id", ""), body.get("service", "toggle")
+        if eid.split(".")[0] not in TOGGLE_DOMAINS or eid not in self.store.bound_entities() \
+                or service not in ("toggle", "turn_on", "turn_off"):
+            return JSONResponse({"error": "эту сущность отсюда переключать нельзя"}, status_code=403)
+        try:
+            await self.ha.call(eid.split(".")[0], service, {"entity_id": eid})
+        except HAError as e:
+            return JSONResponse({"error": str(e)}, status_code=502)
+        return JSONResponse({"ok": True})
+
+    async def api_vacuum(self, request: Request):
+        if not self.vacuum:
+            return JSONResponse({"error": "пылесос не привязан"}, status_code=404)
+        body = await request.json()
+        vac = self.vacuum[0].bind["ha.entity"]
+        vac = vac[0] if isinstance(vac, list) else vac
+        do = body.get("do")
+        try:
+            if do == "clean":
+                space = self.store.resolve(body.get("space", ""), {Kind.space})
+                seg = space.bind.get("dreame.segment")
+                if not seg:
+                    return JSONResponse({"error": f"у «{space.name}» нет комнаты на карте робота"}, status_code=400)
+                await self.ha.call("dreame_vacuum", "vacuum_clean_segment", {"entity_id": vac, "segments": seg})
+            elif do in ("goto", "spot"):
+                x, y = self._site_to_robot(*map(float, body["at"][:2]))
+                if do == "goto":
+                    await self.ha.call("dreame_vacuum", "vacuum_goto", {"entity_id": vac, "x": x, "y": y})
+                else:
+                    await self.ha.call("dreame_vacuum", "vacuum_clean_spot", {"entity_id": vac, "points": [[x, y]]})
+            elif do == "home":
+                await self.ha.call("vacuum", "return_to_base", {"entity_id": vac})
+            else:
+                return JSONResponse({"error": "do: clean | goto | spot | home"}, status_code=400)
+        except StoreError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        except HAError as e:
+            return JSONResponse({"error": str(e)}, status_code=502)
+        return JSONResponse({"ok": True})
+
+    async def api_photo(self, request: Request):
+        """Фото места хранения → список вещей от ai_task (сохранять их будет пользователь)."""
+        if not (self.media_dir and self.ai_task):
+            return JSONResponse({"error": "распознавание фото не настроено"}, status_code=404)
+        try:
+            place = self.store.resolve(request.query_params.get("place", ""), PLACE_KINDS)
+        except StoreError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        data = await request.body()
+        if not data or len(data) > MAX_PHOTO:
+            return JSONResponse({"error": "нужна картинка до 12 МБ"}, status_code=400)
+        ext = {"image/png": "png", "image/webp": "webp"}.get(request.headers.get("content-type", ""), "jpg")
+        name = f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}.{ext}"
+        folder = self.media_dir / "photos"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_bytes(data)
+        media_id = f"media-source://media_source/local/{self.media_dir.name}/photos/{name}"
+        try:
+            res = await self.ha.call("ai_task", "generate_data", {
+                "task_name": "cherrybim photo", "entity_id": self.ai_task,
+                "instructions": PHOTO_PROMPT.format(place=self.store.short_path(place.id)),
+                "structure": {"items": {"description": "вещи на фото", "required": True,
+                                        "selector": {"text": {"multiple": True}}}},
+                "attachments": [{"media_content_id": media_id,
+                                 "media_content_type": "image/" + ("jpeg" if ext == "jpg" else ext)}],
+            }, response=True, timeout=120)
+        except HAError as e:
+            return JSONResponse({"error": str(e), "photo": media_id}, status_code=502)
+        items = ((res or {}).get("data") or {}).get("items") or []
+        if isinstance(items, str):
+            items = [s.strip(" -•") for s in items.splitlines() if s.strip(" -•")]
+        return JSONResponse({"place": place.id, "photo": media_id, "items": [str(i)[:120] for i in items][:60]})
+
+    async def live(self, ws: WebSocket):
+        if not self._allowed(ws.scope):
+            await ws.close(code=1008)
+            return
+        await ws.accept()
+        q: asyncio.Queue = asyncio.Queue(maxsize=500)
+        self.clients.add(q)
+        try:
+            await ws.send_json({"type": "hello", "version": self.store.version, "ha": self.ha_status(),
+                                "states": self.states()})
+            while True:
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=25)
+                except asyncio.TimeoutError:
+                    msg = {"type": "ping"}
+                await ws.send_json(msg)
+        except (WebSocketDisconnect, RuntimeError):
+            pass
+        finally:
+            self.clients.discard(q)
+
+    def _guard(self, fn):
+        try:
+            return JSONResponse(fn())
+        except StoreError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+
+    # ── MCP ──────────────────────────────────────────────────────────────────
+    def _build_mcp(self, name: str) -> FastMCP:
+        mcp = FastMCP(name, stateless_http=True, json_response=True,
+                      transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+                      instructions="Учёт квартиры: где что лежит и стоит, отделка, инженерия. "
+                                   "Сначала find, потом при необходимости contents.")
+        st = self.store
+
+        @mcp.tool()
+        def find(query: str) -> str:
+            """Где лежит или находится что-то в квартире и доме: вещь, место хранения (шкаф, ящик, полка,
+            коробка), мебель, техника, отделка (обои, пол, плитка), розетки, автоматы и электрогруппы,
+            трубы, краны, счётчики, узлы. Для «где лежит …», «где …», «какие обои …», «на каком автомате …».
+            query — что ищем, можно с местом: «дрель», «ящик 2 в спальне», «узел отопления»."""
+            hits = st.search(query, limit=6)
+            if not hits:
+                return f"Ничего не нашёл по «{query}». Можно записать вещь через add_item."
+            return "\n".join(_describe(st, h) for h in hits)
+
+        @mcp.tool()
+        def contents(place: str) -> str:
+            """Что лежит в месте хранения или комнате: шкаф, секция, ящик, полка, коробка, комната.
+            place — словами («шкаф в спальне», «ящик 2») или id из find."""
+            try:
+                c = st.contents(place)
+            except StoreError as e:
+                return str(e)
+            lines = [f"{c['place']['short']}:"]
+            if c["places"]:
+                lines.append("места внутри: " + ", ".join(p["name"] for p in c["places"]))
+            lines.append("вещи: " + ("; ".join(f"{i['name']} ({i['short']})" for i in c["items"])
+                                     if c["items"] else "не записано ни одной"))
+            return "\n".join(lines)
+
+        @mcp.tool()
+        def add_item(name: str, place: str, qty: float | None = None, note: str | None = None,
+                     by: str | None = None) -> str:
+            """Записать, что вещь лежит в месте: «положил дрель во второй ящик шкафа в спальне».
+            name — вещь в именительном падеже; place — место словами или id из find; qty — сколько штук;
+            note — пояснение; by — кто положил, если известно."""
+            try:
+                e = st.add_item(name, place, qty=qty, note=note, by=by, origin="voice")
+            except StoreError as err:
+                return str(err)
+            return f"Записал: {e.name} — {st.short_path(e.parent)}."
+
+        @mcp.tool()
+        def move_item(item: str, place: str, by: str | None = None) -> str:
+            """Переложить уже записанную вещь в другое место. item — вещь словами или id; place — новое место."""
+            try:
+                e = st.move_item(item, place, by=by)
+            except StoreError as err:
+                return str(err)
+            return f"Переложил: {e.name} — теперь {st.short_path(e.parent)}."
+
+        @mcp.tool()
+        def remove_item(item: str, by: str | None = None) -> str:
+            """Вычеркнуть вещь из учёта: выбросили, отдали, закончилась. Запись можно вернуть из корзины."""
+            try:
+                return f"Вычеркнул: {st.remove_item(item, by=by)}."
+            except StoreError as err:
+                return str(err)
+
+        return mcp
+
+    # ── доступ по адресу ─────────────────────────────────────────────────────
+    def _allowed(self, scope) -> bool:
+        client = scope.get("client")
+        if not client:
+            return True                                  # тестовый клиент без адреса
+        try:
+            ip = ipaddress.ip_address(client[0])
+        except ValueError:
+            return False
+        return any(ip in n for n in self.allow)
+
+    def app(self) -> Starlette:
+        mcp_app = self.mcp.streamable_http_app()
+        routes = [
+            Route("/", self.index),
+            Route("/api/twin", self.api_twin),
+            Route("/api/search", self.api_search),
+            Route("/api/place/{ref:path}", self.api_place),
+            Route("/api/items", self.api_items, methods=["POST"]),
+            Route("/api/items/{ref}", self.api_items, methods=["PATCH"]),
+            Route("/api/items/{ref}", self.api_item_delete, methods=["DELETE"]),
+            Route("/api/states", self.api_states),
+            Route("/api/call", self.api_call, methods=["POST"]),
+            Route("/api/vacuum", self.api_vacuum, methods=["POST"]),
+            Route("/api/photo", self.api_photo, methods=["POST"]),
+            WebSocketRoute("/api/live", self.live),
+            *mcp_app.routes,
+            Mount("/static", _Static(directory=STATIC), name="static"),
+        ]
+
+        @contextlib.asynccontextmanager
+        async def lifespan(app):
+            self.loop = asyncio.get_running_loop()
+            self.ha.start(self.store.bound_entities() | ({self.vacuum[1]} if self.vacuum else set()))
+            async with self.mcp.session_manager.run():
+                yield
+            await self.ha.stop()
+
+        inner = Starlette(routes=routes, lifespan=lifespan)
+        server = self
+
+        async def guard(scope, receive, send):           # ASGI: чужие адреса не доходят ни до чего
+            if scope["type"] in ("http", "websocket") and not server._allowed(scope):
+                if scope["type"] == "http":
+                    await PlainTextResponse("forbidden", status_code=403)(scope, receive, send)
+                else:
+                    await send({"type": "websocket.close", "code": 1008})
+                return
+            await inner(scope, receive, send)
+        return guard
+
+
+def _user(request: Request) -> str | None:
+    """Кто правит: под ingress HA передаёт имя пользователя в заголовке."""
+    name = request.headers.get("x-remote-user-display-name") or request.headers.get("x-remote-user-name")
+    if name:
+        try:
+            return name.encode("latin-1").decode("utf-8")   # заголовки приходят байтами UTF-8
+        except (UnicodeDecodeError, UnicodeEncodeError):
+            return name
+    return None
+
+
+def _item(e) -> dict:
+    return {"id": e.id, "name": e.name, "parent": e.parent, "props": e.props}
+
+
+def _describe(st: Store, h: dict) -> str:
+    e = st.twin.by_id[h["id"]]
+    ru = lookup(e.kind, e.type)[0]
+    props = [f"{k}: {v}" for k, v in e.props.items() if isinstance(v, (str, int, float)) and not isinstance(v, bool)
+             and len(str(v)) < 160][:8]
+    line = f"{e.name} ({ru}) — {h['short']}"
+    if props:
+        line += ". " + "; ".join(props)
+    if e.kind in (Kind.storage, Kind.furniture):
+        n = sum(1 for k in st.twin.children(e.id) if k.kind == Kind.item)
+        if n:
+            line += f". Внутри записано вещей: {n}"
+    return line + f" [id {e.id}]"
+
+
+# ── запуск ───────────────────────────────────────────────────────────────────
+def main(argv=None) -> None:
+    ap = argparse.ArgumentParser(prog="cherrybim.server", description=__doc__.split("\n")[0])
+    env = os.environ.get
+    ap.add_argument("--packages", default=env("CHERRYBIM_PACKAGES", "packages"), help="папка с *.twin.json")
+    ap.add_argument("--data", default=env("CHERRYBIM_DATA", "data"), help="папка для вещей (items.twin.json)")
+    ap.add_argument("--media", default=env("CHERRYBIM_MEDIA"), help="папка медиа HA для фото (/media/cherrybim)")
+    ap.add_argument("--ai-task", default=env("CHERRYBIM_AI_TASK"), help="сущность ai_task для фото → вещи")
+    ap.add_argument("--audience", default=env("CHERRYBIM_AUDIENCE", "household"), choices=[p.value for p in Privacy])
+    ap.add_argument("--host", default=env("CHERRYBIM_HOST", "0.0.0.0"))
+    ap.add_argument("--port", type=int, default=int(env("CHERRYBIM_PORT", "8099")))
+    ap.add_argument("--allow", default=env("CHERRYBIM_ALLOW", DEFAULT_ALLOW), help="разрешённые сети через запятую")
+    ap.add_argument("--mcp-name", default=env("CHERRYBIM_MCP_NAME", "cherrybim"))
+    a = ap.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    store = Store(a.packages, a.data, Privacy(a.audience))
+    srv = Server(store, HA(), media_dir=a.media, ai_task=a.ai_task, mcp_name=a.mcp_name, allow=a.allow)
+    log.info("пакетов %d, сущностей %d, вещей %d", len(store.base), len(store.twin.by_id), len(store.items.entities))
+    import uvicorn
+    uvicorn.run(srv.app(), host=a.host, port=a.port, log_config=None, access_log=False, timeout_graceful_shutdown=3,
+                ws="websockets-sansio" if _has_sansio() else "auto")
+
+
+def _has_sansio() -> bool:
+    try:
+        import uvicorn.protocols.websockets.websockets_sansio_impl  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+if __name__ == "__main__":
+    main()
