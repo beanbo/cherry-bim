@@ -55,6 +55,11 @@ def test_search_finds_item_with_case_endings(twin):
     assert not twin.search("дрель", Privacy.public)                       # публике квартира не видна
 
 
+def test_search_single_digit_is_exact(twin):
+    hits = twin.search("ящик 3", Privacy.household)
+    assert hits[0][0].key == "kv12.bedroom.wardrobe.dr3"
+
+
 def test_geojson_respects_audience(twin):
     pub = to_geojson(twin, Privacy.public)
     keys = {f["properties"]["key"] for f in pub["features"]}

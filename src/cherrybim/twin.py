@@ -109,7 +109,7 @@ class Twin:
     # ── поиск ────────────────────────────────────────────────────────────────
     def search(self, query: str, audience: Privacy = Privacy.owner, limit: int = 10) -> list[tuple[Entity, str]]:
         """Простой поиск по названию, синонимам, тегам и пути; падежи отрезаются грубым стеммингом."""
-        toks = [_stem(t) for t in _norm(query).split() if len(t) > 1]
+        toks = [_stem(t) for t in _norm(query).split() if len(t) > 1 or t.isdigit()]   # «автомат 6»
         if not toks:
             return []
         scored = []
@@ -118,9 +118,10 @@ class Twin:
             body = _norm(" ".join(e.tags + [str(v) for v in e.props.values() if isinstance(v, str)])).split()
             sc, hit_all = 0, True
             for t in toks:
-                if any(w.startswith(t) for w in title):
+                match = (lambda w: w == t) if t.isdigit() else (lambda w: w.startswith(t))   # «6» не равно «16»
+                if any(match(w) for w in title):
                     sc += 3
-                elif any(w.startswith(t) for w in body):
+                elif any(match(w) for w in body):
                     sc += 1
                 else:
                     hit_all = False
