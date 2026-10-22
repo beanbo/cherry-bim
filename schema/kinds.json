@@ -1,0 +1,360 @@
+{
+ "site": {
+  "*": {
+   "ru": "участок, квартал",
+   "ifc": "IfcSite",
+   "ifc_type": null
+  }
+ },
+ "building": {
+  "*": {
+   "ru": "здание",
+   "ifc": "IfcBuilding",
+   "ifc_type": null
+  }
+ },
+ "section": {
+  "*": {
+   "ru": "подъезд, секция",
+   "ifc": "IfcBuilding",
+   "ifc_type": null
+  }
+ },
+ "storey": {
+  "*": {
+   "ru": "этаж",
+   "ifc": "IfcBuildingStorey",
+   "ifc_type": null
+  }
+ },
+ "unit": {
+  "*": {
+   "ru": "квартира, помещение",
+   "ifc": "IfcSpace",
+   "ifc_type": "INTERNAL"
+  }
+ },
+ "space": {
+  "*": {
+   "ru": "комната",
+   "ifc": "IfcSpace",
+   "ifc_type": "INTERNAL"
+  },
+  "loggia": {
+   "ru": "лоджия",
+   "ifc": "IfcSpace",
+   "ifc_type": "INTERNAL"
+  }
+ },
+ "zone": {
+  "*": {
+   "ru": "зона",
+   "ifc": "IfcZone",
+   "ifc_type": null
+  }
+ },
+ "wall": {
+  "exterior": {
+   "ru": "наружная стена",
+   "ifc": "IfcWall",
+   "ifc_type": "SOLIDWALL"
+  },
+  "*": {
+   "ru": "стена, перегородка",
+   "ifc": "IfcWall",
+   "ifc_type": "PARTITIONING"
+  }
+ },
+ "slab": {
+  "*": {
+   "ru": "плита",
+   "ifc": "IfcSlab",
+   "ifc_type": "FLOOR"
+  }
+ },
+ "opening": {
+  "window": {
+   "ru": "окно",
+   "ifc": "IfcWindow",
+   "ifc_type": "WINDOW"
+  },
+  "*": {
+   "ru": "дверь, балконный блок",
+   "ifc": "IfcDoor",
+   "ifc_type": "DOOR"
+  }
+ },
+ "furniture": {
+  "bed": {
+   "ru": "кровать",
+   "ifc": "IfcFurniture",
+   "ifc_type": "BED"
+  },
+  "sofa": {
+   "ru": "диван",
+   "ifc": "IfcFurniture",
+   "ifc_type": "SOFA"
+  },
+  "desk": {
+   "ru": "стол",
+   "ifc": "IfcFurniture",
+   "ifc_type": "DESK"
+  },
+  "dining_table": {
+   "ru": "обеденный стол",
+   "ifc": "IfcFurniture",
+   "ifc_type": "TABLE"
+  },
+  "bookshelf": {
+   "ru": "стеллаж, книжная полка",
+   "ifc": "IfcFurniture",
+   "ifc_type": "SHELF"
+  },
+  "wardrobe": {
+   "ru": "шкаф",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "*": {
+   "ru": "мебель",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  }
+ },
+ "storage": {
+  "section": {
+   "ru": "секция шкафа",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "drawer": {
+   "ru": "ящик",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "compartment": {
+   "ru": "отделение, полка",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "hanging": {
+   "ru": "место под штангой",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "box": {
+   "ru": "коробка",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "*": {
+   "ru": "место хранения",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  }
+ },
+ "item": {
+  "*": {
+   "ru": "вещь",
+   "ifc": "IfcBuildingElementProxy",
+   "ifc_type": "USERDEFINED"
+  }
+ },
+ "mep": {
+  "heating_manifold": {
+   "ru": "коллектор отопления",
+   "ifc": "IfcPipeFitting",
+   "ifc_type": "JUNCTION"
+  },
+  "water_riser": {
+   "ru": "стояк воды",
+   "ifc": "IfcPipeSegment",
+   "ifc_type": "RIGIDSEGMENT"
+  },
+  "pipe_pair": {
+   "ru": "трубы подачи и обратки",
+   "ifc": "IfcPipeSegment",
+   "ifc_type": "FLEXIBLESEGMENT"
+  },
+  "vent_shaft": {
+   "ru": "вентблок",
+   "ifc": "IfcDuctSegment",
+   "ifc_type": "RIGIDSEGMENT"
+  },
+  "power_outlet": {
+   "ru": "розетка",
+   "ifc": "IfcOutlet",
+   "ifc_type": "POWEROUTLET"
+  },
+  "switch": {
+   "ru": "выключатель",
+   "ifc": "IfcSwitchingDevice",
+   "ifc_type": "TOGGLESWITCH"
+  },
+  "junction_box": {
+   "ru": "распаечная коробка, вывод кабеля",
+   "ifc": "IfcJunctionBox",
+   "ifc_type": "POWER"
+  },
+  "radiator": {
+   "ru": "радиатор, конвектор",
+   "ifc": "IfcSpaceHeater",
+   "ifc_type": "CONVECTOR"
+  },
+  "valve": {
+   "ru": "кран",
+   "ifc": "IfcValve",
+   "ifc_type": "ISOLATING"
+  },
+  "water_meter": {
+   "ru": "счётчик воды",
+   "ifc": "IfcFlowMeter",
+   "ifc_type": "WATERMETER"
+  },
+  "distribution_board": {
+   "ru": "щиток",
+   "ifc": "IfcElectricDistributionBoard",
+   "ifc_type": "DISTRIBUTIONBOARD"
+  },
+  "breaker": {
+   "ru": "автомат, АВДТ",
+   "ifc": "IfcProtectiveDevice",
+   "ifc_type": "CIRCUITBREAKER"
+  },
+  "cable": {
+   "ru": "кабель",
+   "ifc": "IfcCableSegment",
+   "ifc_type": "CABLESEGMENT"
+  },
+  "grille": {
+   "ru": "вентрешётка",
+   "ifc": "IfcAirTerminal",
+   "ifc_type": "GRILLE"
+  }
+ },
+ "device": {
+  "light": {
+   "ru": "свет",
+   "ifc": "IfcLightFixture",
+   "ifc_type": "POINTSOURCE"
+  },
+  "lamp": {
+   "ru": "лампа",
+   "ifc": "IfcLightFixture",
+   "ifc_type": "POINTSOURCE"
+  },
+  "thermostat": {
+   "ru": "термостат",
+   "ifc": "IfcUnitaryControlElement",
+   "ifc_type": "THERMOSTAT"
+  },
+  "ac": {
+   "ru": "кондиционер",
+   "ifc": "IfcUnitaryEquipment",
+   "ifc_type": "SPLITSYSTEM"
+  },
+  "breezer": {
+   "ru": "бризер",
+   "ifc": "IfcUnitaryEquipment",
+   "ifc_type": "USERDEFINED"
+  },
+  "tv": {
+   "ru": "телевизор",
+   "ifc": "IfcAudioVisualAppliance",
+   "ifc_type": "TV"
+  },
+  "speaker": {
+   "ru": "колонка",
+   "ifc": "IfcAudioVisualAppliance",
+   "ifc_type": "SPEAKER"
+  },
+  "sensor": {
+   "ru": "датчик",
+   "ifc": "IfcSensor",
+   "ifc_type": "USERDEFINED"
+  },
+  "vacuum": {
+   "ru": "робот-пылесос",
+   "ifc": "IfcElectricAppliance",
+   "ifc_type": "USERDEFINED"
+  },
+  "*": {
+   "ru": "устройство",
+   "ifc": "IfcElectricAppliance",
+   "ifc_type": "USERDEFINED"
+  }
+ },
+ "system": {
+  "heating": {
+   "ru": "система отопления",
+   "ifc": "IfcDistributionSystem",
+   "ifc_type": "HEATING"
+  },
+  "electrical": {
+   "ru": "электрогруппа",
+   "ifc": "IfcDistributionSystem",
+   "ifc_type": "ELECTRICAL"
+  },
+  "cold_water": {
+   "ru": "холодная вода",
+   "ifc": "IfcDistributionSystem",
+   "ifc_type": "DOMESTICCOLDWATER"
+  },
+  "hot_water": {
+   "ru": "горячая вода",
+   "ifc": "IfcDistributionSystem",
+   "ifc_type": "DOMESTICHOTWATER"
+  },
+  "*": {
+   "ru": "система",
+   "ifc": "IfcDistributionSystem",
+   "ifc_type": "USERDEFINED"
+  }
+ },
+ "feature": {
+  "parking": {
+   "ru": "парковка",
+   "ifc": "IfcSpace",
+   "ifc_type": "PARKING"
+  },
+  "parking_spot": {
+   "ru": "машино-место",
+   "ifc": "IfcSpace",
+   "ifc_type": "PARKING"
+  },
+  "playground": {
+   "ru": "детская площадка",
+   "ifc": "IfcSpace",
+   "ifc_type": "EXTERNAL"
+  },
+  "pitch": {
+   "ru": "спортплощадка",
+   "ifc": "IfcSpace",
+   "ifc_type": "EXTERNAL"
+  },
+  "gazebo": {
+   "ru": "беседка",
+   "ifc": "IfcBuildingElementProxy",
+   "ifc_type": "USERDEFINED"
+  },
+  "*": {
+   "ru": "объект на участке",
+   "ifc": "IfcBuildingElementProxy",
+   "ifc_type": "USERDEFINED"
+  }
+ },
+ "finish": {
+  "*": {
+   "ru": "отделка",
+   "ifc": "IfcCovering",
+   "ifc_type": "CLADDING"
+  }
+ },
+ "document": {
+  "*": {
+   "ru": "документ",
+   "ifc": "IfcDocumentReference",
+   "ifc_type": null
+  }
+ }
+}

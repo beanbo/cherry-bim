@@ -1,0 +1,603 @@
+{
+ "format": "cherrybim",
+ "schema_version": "0.1.0",
+ "id": "828c2d1b-3366-5645-8f71-7d0ed7ced50f",
+ "name": "Демо-квартал",
+ "root": "59ef8e61-1151-5f5a-8e9f-de1b0a657705",
+ "georef": {
+  "lat": 53.9,
+  "lon": 27.5667,
+  "h": 220.0
+ },
+ "privacy": "public",
+ "entities": [
+  {
+   "id": "59ef8e61-1151-5f5a-8e9f-de1b0a657705",
+   "key": "kvartal",
+   "kind": "site",
+   "type": "quarter",
+   "name": "Демо-квартал",
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "25f5ada8-69c3-55f2-98f9-e77d10378c31",
+   "key": "b1",
+   "kind": "building",
+   "type": "residential",
+   "name": "Дом 1",
+   "parent": "59ef8e61-1151-5f5a-8e9f-de1b0a657705",
+   "placement": {
+    "pos": [
+     -20.0,
+     -8.0,
+     0.0
+    ],
+    "yaw": 30.0
+   },
+   "geom": {
+    "type": "extrusion",
+    "outline": [
+     [
+      0.0,
+      0.0
+     ],
+     [
+      15.0,
+      0.0
+     ],
+     [
+      15.0,
+      40.0
+     ],
+     [
+      0.0,
+      40.0
+     ]
+    ],
+    "z0": 0.0,
+    "height": 25.2
+   },
+   "props": {
+    "levels": 9
+   },
+   "src": {
+    "from": "demo"
+   },
+   "aliases": [
+    "первый дом"
+   ]
+  },
+  {
+   "id": "071dcf2e-8f5f-51d9-b845-d5c12dffb8e9",
+   "key": "playground",
+   "kind": "feature",
+   "type": "playground",
+   "name": "Детская площадка",
+   "parent": "59ef8e61-1151-5f5a-8e9f-de1b0a657705",
+   "geom": {
+    "type": "extrusion",
+    "outline": [
+     [
+      5.0,
+      5.0
+     ],
+     [
+      25.0,
+      5.0
+     ],
+     [
+      25.0,
+      20.0
+     ],
+     [
+      5.0,
+      20.0
+     ]
+    ],
+    "z0": 0.0,
+    "height": 0.0
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "9673fd8d-7940-5320-b2dd-549fc294ec2e",
+   "key": "parking",
+   "kind": "feature",
+   "type": "parking",
+   "name": "Парковка",
+   "parent": "59ef8e61-1151-5f5a-8e9f-de1b0a657705",
+   "geom": {
+    "type": "extrusion",
+    "outline": [
+     [
+      -40.0,
+      20.0
+     ],
+     [
+      -10.0,
+      20.0
+     ],
+     [
+      -10.0,
+      28.0
+     ],
+     [
+      -40.0,
+      28.0
+     ]
+    ],
+    "z0": 0.0,
+    "height": 0.0
+   },
+   "props": {
+    "spaces": 12
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "a3dbb307-2c4e-5e35-8b3f-fbba9ae985c2",
+   "key": "b1.s1",
+   "kind": "section",
+   "type": "entrance",
+   "name": "Подъезд 1",
+   "parent": "25f5ada8-69c3-55f2-98f9-e77d10378c31",
+   "placement": {
+    "pos": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "yaw": 0.0
+   },
+   "geom": {
+    "type": "extrusion",
+    "outline": [
+     [
+      0.0,
+      0.0
+     ],
+     [
+      15.0,
+      0.0
+     ],
+     [
+      15.0,
+      20.0
+     ],
+     [
+      0.0,
+      20.0
+     ]
+    ],
+    "z0": 0.0,
+    "height": 25.2
+   },
+   "props": {
+    "number": "1"
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "3025c3a4-dc9a-5f1e-8995-656c3ce4fd75",
+   "key": "b1.s1.f1",
+   "kind": "storey",
+   "type": "residential",
+   "name": "Этаж 1",
+   "parent": "a3dbb307-2c4e-5e35-8b3f-fbba9ae985c2",
+   "placement": {
+    "pos": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "yaw": 0.0
+   },
+   "props": {
+    "number": 1
+   }
+  },
+  {
+   "id": "30b0963f-b5db-5a49-8168-58723e1181ea",
+   "key": "b1.s1.f2",
+   "kind": "storey",
+   "type": "residential",
+   "name": "Этаж 2",
+   "parent": "a3dbb307-2c4e-5e35-8b3f-fbba9ae985c2",
+   "placement": {
+    "pos": [
+     0.0,
+     0.0,
+     2.8
+    ],
+    "yaw": 0.0
+   },
+   "props": {
+    "number": 2
+   }
+  },
+  {
+   "id": "4d1afd49-d692-5dea-8370-a2ea0c56c393",
+   "key": "b1.s1.f3",
+   "kind": "storey",
+   "type": "residential",
+   "name": "Этаж 3",
+   "parent": "a3dbb307-2c4e-5e35-8b3f-fbba9ae985c2",
+   "placement": {
+    "pos": [
+     0.0,
+     0.0,
+     5.6
+    ],
+    "yaw": 0.0
+   },
+   "props": {
+    "number": 3
+   }
+  },
+  {
+   "id": "3441d0ab-a917-5f7f-86b0-d46075796d86",
+   "key": "b1.s1.f4",
+   "kind": "storey",
+   "type": "residential",
+   "name": "Этаж 4",
+   "parent": "a3dbb307-2c4e-5e35-8b3f-fbba9ae985c2",
+   "placement": {
+    "pos": [
+     0.0,
+     0.0,
+     8.399999999999999
+    ],
+    "yaw": 0.0
+   },
+   "props": {
+    "number": 4
+   }
+  },
+  {
+   "id": "86fc8d94-0cdf-5cd6-b0ca-658bcd72b69e",
+   "key": "b1.s1.f5",
+   "kind": "storey",
+   "type": "residential",
+   "name": "Этаж 5",
+   "parent": "a3dbb307-2c4e-5e35-8b3f-fbba9ae985c2",
+   "placement": {
+    "pos": [
+     0.0,
+     0.0,
+     11.2
+    ],
+    "yaw": 0.0
+   },
+   "props": {
+    "number": 5
+   }
+  },
+  {
+   "id": "dd84862f-bb4f-557e-b4ec-7c2b9994eed8",
+   "key": "b1.s1.f6",
+   "kind": "storey",
+   "type": "residential",
+   "name": "Этаж 6",
+   "parent": "a3dbb307-2c4e-5e35-8b3f-fbba9ae985c2",
+   "placement": {
+    "pos": [
+     0.0,
+     0.0,
+     14.0
+    ],
+    "yaw": 0.0
+   },
+   "props": {
+    "number": 6
+   }
+  },
+  {
+   "id": "528d03d1-7ce5-5645-a1d0-9499e92eb5ec",
+   "key": "b1.s1.f7",
+   "kind": "storey",
+   "type": "residential",
+   "name": "Этаж 7",
+   "parent": "a3dbb307-2c4e-5e35-8b3f-fbba9ae985c2",
+   "placement": {
+    "pos": [
+     0.0,
+     0.0,
+     16.799999999999997
+    ],
+    "yaw": 0.0
+   },
+   "props": {
+    "number": 7
+   }
+  },
+  {
+   "id": "8d6c99cc-b2bd-52b1-bd90-15857f34c1eb",
+   "key": "b1.s1.f8",
+   "kind": "storey",
+   "type": "residential",
+   "name": "Этаж 8",
+   "parent": "a3dbb307-2c4e-5e35-8b3f-fbba9ae985c2",
+   "placement": {
+    "pos": [
+     0.0,
+     0.0,
+     19.599999999999998
+    ],
+    "yaw": 0.0
+   },
+   "props": {
+    "number": 8
+   }
+  },
+  {
+   "id": "efb902d7-9754-5f8c-a8bd-ebf6b9d16bb1",
+   "key": "b1.s1.f9",
+   "kind": "storey",
+   "type": "residential",
+   "name": "Этаж 9",
+   "parent": "a3dbb307-2c4e-5e35-8b3f-fbba9ae985c2",
+   "placement": {
+    "pos": [
+     0.0,
+     0.0,
+     22.4
+    ],
+    "yaw": 0.0
+   },
+   "props": {
+    "number": 9
+   }
+  },
+  {
+   "id": "6772ee3c-3157-5f69-beeb-dfa8de4e7419",
+   "key": "b1.s2",
+   "kind": "section",
+   "type": "entrance",
+   "name": "Подъезд 2",
+   "parent": "25f5ada8-69c3-55f2-98f9-e77d10378c31",
+   "placement": {
+    "pos": [
+     0.0,
+     20.0,
+     0.0
+    ],
+    "yaw": 0.0
+   },
+   "geom": {
+    "type": "extrusion",
+    "outline": [
+     [
+      0.0,
+      0.0
+     ],
+     [
+      15.0,
+      0.0
+     ],
+     [
+      15.0,
+      20.0
+     ],
+     [
+      0.0,
+      20.0
+     ]
+    ],
+    "z0": 0.0,
+    "height": 25.2
+   },
+   "props": {
+    "number": "2"
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "689329a7-8644-5ace-95bd-a2224d0ac275",
+   "key": "b1.s2.f1",
+   "kind": "storey",
+   "type": "residential",
+   "name": "Этаж 1",
+   "parent": "6772ee3c-3157-5f69-beeb-dfa8de4e7419",
+   "placement": {
+    "pos": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "yaw": 0.0
+   },
+   "props": {
+    "number": 1
+   }
+  },
+  {
+   "id": "c81977d9-350e-57e8-9bb9-a93b32f54859",
+   "key": "b1.s2.f2",
+   "kind": "storey",
+   "type": "residential",
+   "name": "Этаж 2",
+   "parent": "6772ee3c-3157-5f69-beeb-dfa8de4e7419",
+   "placement": {
+    "pos": [
+     0.0,
+     0.0,
+     2.8
+    ],
+    "yaw": 0.0
+   },
+   "props": {
+    "number": 2
+   }
+  },
+  {
+   "id": "0a251f87-f0ad-580e-9492-e3eabc3439c9",
+   "key": "b1.s2.f3",
+   "kind": "storey",
+   "type": "residential",
+   "name": "Этаж 3",
+   "parent": "6772ee3c-3157-5f69-beeb-dfa8de4e7419",
+   "placement": {
+    "pos": [
+     0.0,
+     0.0,
+     5.6
+    ],
+    "yaw": 0.0
+   },
+   "props": {
+    "number": 3
+   }
+  },
+  {
+   "id": "db630e42-994d-5960-9491-9559e15b7aea",
+   "key": "b1.s2.f4",
+   "kind": "storey",
+   "type": "residential",
+   "name": "Этаж 4",
+   "parent": "6772ee3c-3157-5f69-beeb-dfa8de4e7419",
+   "placement": {
+    "pos": [
+     0.0,
+     0.0,
+     8.399999999999999
+    ],
+    "yaw": 0.0
+   },
+   "props": {
+    "number": 4
+   }
+  },
+  {
+   "id": "a84f793a-708f-5f10-af77-da757b0a057a",
+   "key": "b1.s2.f5",
+   "kind": "storey",
+   "type": "residential",
+   "name": "Этаж 5",
+   "parent": "6772ee3c-3157-5f69-beeb-dfa8de4e7419",
+   "placement": {
+    "pos": [
+     0.0,
+     0.0,
+     11.2
+    ],
+    "yaw": 0.0
+   },
+   "props": {
+    "number": 5
+   }
+  },
+  {
+   "id": "69407943-59b1-5293-b8cc-a907d4fac61e",
+   "key": "b1.s2.f6",
+   "kind": "storey",
+   "type": "residential",
+   "name": "Этаж 6",
+   "parent": "6772ee3c-3157-5f69-beeb-dfa8de4e7419",
+   "placement": {
+    "pos": [
+     0.0,
+     0.0,
+     14.0
+    ],
+    "yaw": 0.0
+   },
+   "props": {
+    "number": 6
+   }
+  },
+  {
+   "id": "76307610-a7f1-5ab0-b65d-9e79f8c48154",
+   "key": "b1.s2.f7",
+   "kind": "storey",
+   "type": "residential",
+   "name": "Этаж 7",
+   "parent": "6772ee3c-3157-5f69-beeb-dfa8de4e7419",
+   "placement": {
+    "pos": [
+     0.0,
+     0.0,
+     16.799999999999997
+    ],
+    "yaw": 0.0
+   },
+   "props": {
+    "number": 7
+   }
+  },
+  {
+   "id": "a8931bde-31bd-5aae-8d2a-9033e66ec65e",
+   "key": "b1.s2.f8",
+   "kind": "storey",
+   "type": "residential",
+   "name": "Этаж 8",
+   "parent": "6772ee3c-3157-5f69-beeb-dfa8de4e7419",
+   "placement": {
+    "pos": [
+     0.0,
+     0.0,
+     19.599999999999998
+    ],
+    "yaw": 0.0
+   },
+   "props": {
+    "number": 8
+   }
+  },
+  {
+   "id": "6ff0f27a-8f46-5251-b925-af9139dd7dca",
+   "key": "b1.s2.f9",
+   "kind": "storey",
+   "type": "residential",
+   "name": "Этаж 9",
+   "parent": "6772ee3c-3157-5f69-beeb-dfa8de4e7419",
+   "placement": {
+    "pos": [
+     0.0,
+     0.0,
+     22.4
+    ],
+    "yaw": 0.0
+   },
+   "props": {
+    "number": 9
+   }
+  },
+  {
+   "id": "09795008-8792-5ffe-a155-472bbd8ee021",
+   "key": "b1.s1.f3.panel",
+   "kind": "mep",
+   "type": "distribution_board",
+   "name": "Этажный щиток",
+   "parent": "4d1afd49-d692-5dea-8370-a2ea0c56c393",
+   "placement": {
+    "pos": [
+     7.5,
+     12.0,
+     1.5
+    ],
+    "yaw": 0.0
+   },
+   "geom": {
+    "type": "point"
+   },
+   "privacy": "residents",
+   "src": {
+    "from": "demo"
+   },
+   "aliases": [
+    "автоматы",
+    "щиток"
+   ]
+  }
+ ]
+}

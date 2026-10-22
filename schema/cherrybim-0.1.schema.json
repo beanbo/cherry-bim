@@ -1,0 +1,606 @@
+{
+ "$defs": {
+  "Box": {
+   "additionalProperties": false,
+   "description": "Параллелепипед от начала своей системы вдоль +X, +Y, +Z.",
+   "properties": {
+    "type": {
+     "const": "box",
+     "default": "box",
+     "title": "Type",
+     "type": "string"
+    },
+    "size": {
+     "maxItems": 3,
+     "minItems": 3,
+     "prefixItems": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "number"
+      },
+      {
+       "type": "number"
+      }
+     ],
+     "title": "Size",
+     "type": "array"
+    }
+   },
+   "required": [
+    "size"
+   ],
+   "title": "Box",
+   "type": "object"
+  },
+  "Entity": {
+   "additionalProperties": false,
+   "properties": {
+    "id": {
+     "title": "Id",
+     "type": "string"
+    },
+    "key": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Key"
+    },
+    "kind": {
+     "$ref": "#/$defs/Kind"
+    },
+    "type": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Type"
+    },
+    "name": {
+     "title": "Name",
+     "type": "string"
+    },
+    "parent": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Parent"
+    },
+    "placement": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/Placement"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "geom": {
+     "anyOf": [
+      {
+       "discriminator": {
+        "mapping": {
+         "box": "#/$defs/Box",
+         "extrusion": "#/$defs/Extrusion",
+         "mesh": "#/$defs/Mesh",
+         "point": "#/$defs/Point",
+         "polyline": "#/$defs/Polyline"
+        },
+        "propertyName": "type"
+       },
+       "oneOf": [
+        {
+         "$ref": "#/$defs/Extrusion"
+        },
+        {
+         "$ref": "#/$defs/Box"
+        },
+        {
+         "$ref": "#/$defs/Polyline"
+        },
+        {
+         "$ref": "#/$defs/Point"
+        },
+        {
+         "$ref": "#/$defs/Mesh"
+        }
+       ]
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Geom"
+    },
+    "props": {
+     "additionalProperties": true,
+     "default": {},
+     "title": "Props",
+     "type": "object"
+    },
+    "bind": {
+     "additionalProperties": true,
+     "default": {},
+     "title": "Bind",
+     "type": "object"
+    },
+    "refs": {
+     "default": [],
+     "items": {
+      "$ref": "#/$defs/Ref"
+     },
+     "title": "Refs",
+     "type": "array"
+    },
+    "privacy": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/Privacy"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "src": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/Source"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "tags": {
+     "default": [],
+     "items": {
+      "type": "string"
+     },
+     "title": "Tags",
+     "type": "array"
+    },
+    "aliases": {
+     "default": [],
+     "items": {
+      "type": "string"
+     },
+     "title": "Aliases",
+     "type": "array"
+    }
+   },
+   "required": [
+    "id",
+    "kind",
+    "name"
+   ],
+   "title": "Entity",
+   "type": "object"
+  },
+  "Extrusion": {
+   "additionalProperties": false,
+   "description": "Контур, поднятый на высоту: стены, комнаты, плиты, здания (LOD1).",
+   "properties": {
+    "type": {
+     "const": "extrusion",
+     "default": "extrusion",
+     "title": "Type",
+     "type": "string"
+    },
+    "outline": {
+     "items": {
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "type": "array"
+     },
+     "title": "Outline",
+     "type": "array"
+    },
+    "holes": {
+     "default": [],
+     "items": {
+      "items": {
+       "maxItems": 2,
+       "minItems": 2,
+       "prefixItems": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "number"
+        }
+       ],
+       "type": "array"
+      },
+      "type": "array"
+     },
+     "title": "Holes",
+     "type": "array"
+    },
+    "z0": {
+     "default": 0.0,
+     "title": "Z0",
+     "type": "number"
+    },
+    "height": {
+     "default": 0.0,
+     "title": "Height",
+     "type": "number"
+    }
+   },
+   "required": [
+    "outline"
+   ],
+   "title": "Extrusion",
+   "type": "object"
+  },
+  "Georef": {
+   "additionalProperties": false,
+   "description": "Привязка системы участка к Земле: начало локальной системы ENU (X — восток, Y — север).",
+   "properties": {
+    "lat": {
+     "title": "Lat",
+     "type": "number"
+    },
+    "lon": {
+     "title": "Lon",
+     "type": "number"
+    },
+    "h": {
+     "default": 0.0,
+     "title": "H",
+     "type": "number"
+    }
+   },
+   "required": [
+    "lat",
+    "lon"
+   ],
+   "title": "Georef",
+   "type": "object"
+  },
+  "Kind": {
+   "enum": [
+    "site",
+    "building",
+    "section",
+    "storey",
+    "unit",
+    "space",
+    "zone",
+    "wall",
+    "slab",
+    "opening",
+    "furniture",
+    "storage",
+    "item",
+    "mep",
+    "device",
+    "system",
+    "feature",
+    "finish",
+    "document"
+   ],
+   "title": "Kind",
+   "type": "string"
+  },
+  "Mesh": {
+   "additionalProperties": false,
+   "description": "Готовая 3D-модель (glTF) внутри пакета — для красоты, не для расчётов.",
+   "properties": {
+    "type": {
+     "const": "mesh",
+     "default": "mesh",
+     "title": "Type",
+     "type": "string"
+    },
+    "asset": {
+     "title": "Asset",
+     "type": "string"
+    }
+   },
+   "required": [
+    "asset"
+   ],
+   "title": "Mesh",
+   "type": "object"
+  },
+  "Placement": {
+   "additionalProperties": false,
+   "description": "Положение системы сущности в системе родителя.",
+   "properties": {
+    "pos": {
+     "default": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "maxItems": 3,
+     "minItems": 3,
+     "prefixItems": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "number"
+      },
+      {
+       "type": "number"
+      }
+     ],
+     "title": "Pos",
+     "type": "array"
+    },
+    "yaw": {
+     "default": 0.0,
+     "title": "Yaw",
+     "type": "number"
+    }
+   },
+   "title": "Placement",
+   "type": "object"
+  },
+  "Point": {
+   "additionalProperties": false,
+   "description": "Точечный объект: розетка, кран, датчик. Положение — в placement.",
+   "properties": {
+    "type": {
+     "const": "point",
+     "default": "point",
+     "title": "Type",
+     "type": "string"
+    }
+   },
+   "title": "Point",
+   "type": "object"
+  },
+  "Polyline": {
+   "additionalProperties": false,
+   "description": "Трасса: труба, кабель, воздуховод.",
+   "properties": {
+    "type": {
+     "const": "polyline",
+     "default": "polyline",
+     "title": "Type",
+     "type": "string"
+    },
+    "points": {
+     "items": {
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "type": "array"
+     },
+     "title": "Points",
+     "type": "array"
+    },
+    "diameter": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Diameter"
+    }
+   },
+   "required": [
+    "points"
+   ],
+   "title": "Polyline",
+   "type": "object"
+  },
+  "Privacy": {
+   "description": "Кому видна сущность; каждый следующий уровень уже предыдущего.",
+   "enum": [
+    "public",
+    "residents",
+    "household",
+    "owner",
+    "secret"
+   ],
+   "title": "Privacy",
+   "type": "string"
+  },
+  "Ref": {
+   "additionalProperties": false,
+   "description": "Связь вне дерева вложенности.",
+   "properties": {
+    "rel": {
+     "title": "Rel",
+     "type": "string"
+    },
+    "to": {
+     "title": "To",
+     "type": "string"
+    }
+   },
+   "required": [
+    "rel",
+    "to"
+   ],
+   "title": "Ref",
+   "type": "object"
+  },
+  "Source": {
+   "additionalProperties": false,
+   "description": "Откуда взялись данные и насколько им верить.",
+   "properties": {
+    "from": {
+     "title": "From",
+     "type": "string"
+    },
+    "acc": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Acc"
+    },
+    "at": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "At"
+    },
+    "note": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Note"
+    }
+   },
+   "required": [
+    "from"
+   ],
+   "title": "Source",
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "description": "Пакет двойника: файл, который можно положить в git, отдать боту или другому дому.",
+ "properties": {
+  "format": {
+   "const": "cherrybim",
+   "default": "cherrybim",
+   "title": "Format",
+   "type": "string"
+  },
+  "schema_version": {
+   "default": "0.1.0",
+   "title": "Schema Version",
+   "type": "string"
+  },
+  "id": {
+   "title": "Id",
+   "type": "string"
+  },
+  "name": {
+   "title": "Name",
+   "type": "string"
+  },
+  "description": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Description"
+  },
+  "root": {
+   "title": "Root",
+   "type": "string"
+  },
+  "georef": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/Georef"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "privacy": {
+   "$ref": "#/$defs/Privacy",
+   "default": "owner"
+  },
+  "requires": {
+   "default": [],
+   "items": {
+    "type": "string"
+   },
+   "title": "Requires",
+   "type": "array"
+  },
+  "attribution": {
+   "default": [],
+   "items": {
+    "type": "string"
+   },
+   "title": "Attribution",
+   "type": "array"
+  },
+  "entities": {
+   "items": {
+    "$ref": "#/$defs/Entity"
+   },
+   "title": "Entities",
+   "type": "array"
+  }
+ },
+ "required": [
+  "id",
+  "name",
+  "root",
+  "entities"
+ ],
+ "title": "Package",
+ "type": "object"
+}

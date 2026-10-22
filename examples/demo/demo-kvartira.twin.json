@@ -1,0 +1,426 @@
+{
+ "format": "cherrybim",
+ "schema_version": "0.1.0",
+ "id": "9b9aa68b-df3e-5f43-b9e8-48834a411577",
+ "name": "Квартира 12",
+ "root": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+ "privacy": "household",
+ "requires": [
+  "828c2d1b-3366-5645-8f71-7d0ed7ced50f"
+ ],
+ "entities": [
+  {
+   "id": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+   "key": "kv12",
+   "kind": "unit",
+   "type": "apartment",
+   "name": "Квартира 12",
+   "parent": "4d1afd49-d692-5dea-8370-a2ea0c56c393",
+   "props": {
+    "number": "12"
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "2f12307f-b6ef-5c1a-8a16-a60ed5842228",
+   "key": "kv12.hall",
+   "kind": "space",
+   "type": "room",
+   "name": "Прихожая",
+   "parent": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+   "geom": {
+    "type": "extrusion",
+    "outline": [
+     [
+      0.0,
+      6.0
+     ],
+     [
+      4.0,
+      6.0
+     ],
+     [
+      4.0,
+      9.0
+     ],
+     [
+      0.0,
+      9.0
+     ]
+    ],
+    "z0": 0.0,
+    "height": 2.6
+   },
+   "bind": {
+    "ha.area": "hall"
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "2990f658-a3c1-542e-ae3b-896efd9e43dc",
+   "key": "kv12.kitchen",
+   "kind": "space",
+   "type": "room",
+   "name": "Кухня",
+   "parent": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+   "geom": {
+    "type": "extrusion",
+    "outline": [
+     [
+      0.0,
+      0.0
+     ],
+     [
+      4.0,
+      0.0
+     ],
+     [
+      4.0,
+      6.0
+     ],
+     [
+      0.0,
+      6.0
+     ]
+    ],
+    "z0": 0.0,
+    "height": 2.6
+   },
+   "bind": {
+    "ha.area": "kitchen"
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "f3b98b10-feaf-55db-be2b-636d53ff6825",
+   "key": "kv12.bedroom",
+   "kind": "space",
+   "type": "room",
+   "name": "Спальня",
+   "parent": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+   "geom": {
+    "type": "extrusion",
+    "outline": [
+     [
+      4.0,
+      0.0
+     ],
+     [
+      9.0,
+      0.0
+     ],
+     [
+      9.0,
+      9.0
+     ],
+     [
+      4.0,
+      9.0
+     ]
+    ],
+    "z0": 0.0,
+    "height": 2.6
+   },
+   "bind": {
+    "ha.area": "bedroom"
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "306552c6-a3d2-5589-b1f4-aa2f778e1303",
+   "key": "kv12.bedroom.wardrobe",
+   "kind": "furniture",
+   "type": "wardrobe",
+   "name": "Шкаф",
+   "parent": "f3b98b10-feaf-55db-be2b-636d53ff6825",
+   "placement": {
+    "pos": [
+     4.2,
+     8.4,
+     0.0
+    ],
+    "yaw": 0.0
+   },
+   "geom": {
+    "type": "box",
+    "size": [
+     1.6,
+     0.6,
+     2.4
+    ]
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "28ecab5a-e5e0-5b35-8cb2-152095006da7",
+   "key": "kv12.bedroom.wardrobe.drawers",
+   "kind": "storage",
+   "type": "section",
+   "name": "Секция с ящиками",
+   "parent": "306552c6-a3d2-5589-b1f4-aa2f778e1303",
+   "placement": {
+    "pos": [
+     0.8,
+     0.0,
+     0.1
+    ],
+    "yaw": 0.0
+   },
+   "geom": {
+    "type": "box",
+    "size": [
+     0.8,
+     0.55,
+     1.0
+    ]
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "ad09abaa-0834-5dbf-80c2-a3512d359138",
+   "key": "kv12.bedroom.wardrobe.dr1",
+   "kind": "storage",
+   "type": "drawer",
+   "name": "Ящик 1",
+   "parent": "28ecab5a-e5e0-5b35-8cb2-152095006da7",
+   "placement": {
+    "pos": [
+     0.02,
+     0.02,
+     0.0
+    ],
+    "yaw": 0.0
+   },
+   "geom": {
+    "type": "box",
+    "size": [
+     0.76,
+     0.5,
+     0.25
+    ]
+   },
+   "props": {
+    "level": 1
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "8777ba5f-30de-543f-9e63-68ef0b8ed37b",
+   "key": "kv12.bedroom.wardrobe.dr2",
+   "kind": "storage",
+   "type": "drawer",
+   "name": "Ящик 2",
+   "parent": "28ecab5a-e5e0-5b35-8cb2-152095006da7",
+   "placement": {
+    "pos": [
+     0.02,
+     0.02,
+     0.3
+    ],
+    "yaw": 0.0
+   },
+   "geom": {
+    "type": "box",
+    "size": [
+     0.76,
+     0.5,
+     0.25
+    ]
+   },
+   "props": {
+    "level": 2
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "13f1f8c9-1fc8-596d-af28-fea4d0c0aa04",
+   "key": "kv12.bedroom.wardrobe.dr3",
+   "kind": "storage",
+   "type": "drawer",
+   "name": "Ящик 3",
+   "parent": "28ecab5a-e5e0-5b35-8cb2-152095006da7",
+   "placement": {
+    "pos": [
+     0.02,
+     0.02,
+     0.6
+    ],
+    "yaw": 0.0
+   },
+   "geom": {
+    "type": "box",
+    "size": [
+     0.76,
+     0.5,
+     0.25
+    ]
+   },
+   "props": {
+    "level": 3
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "1dea85ed-b515-58bb-86c6-9719b8444b37",
+   "key": "kv12.bedroom.wardrobe.dr2.drill",
+   "kind": "item",
+   "type": "tool",
+   "name": "Дрель-шуруповёрт",
+   "parent": "8777ba5f-30de-543f-9e63-68ef0b8ed37b",
+   "src": {
+    "from": "demo"
+   },
+   "tags": [
+    "инструмент"
+   ],
+   "aliases": [
+    "шуруповёрт",
+    "дрель"
+   ]
+  },
+  {
+   "id": "bac650ed-bb32-5432-9162-2ac1fd218689",
+   "key": "kv12.hall.manifold",
+   "kind": "mep",
+   "type": "heating_manifold",
+   "name": "Коллектор отопления",
+   "parent": "2f12307f-b6ef-5c1a-8a16-a60ed5842228",
+   "placement": {
+    "pos": [
+     3.8,
+     8.8,
+     0.3
+    ],
+    "yaw": 0.0
+   },
+   "geom": {
+    "type": "point"
+   },
+   "src": {
+    "from": "demo"
+   },
+   "aliases": [
+    "гребёнка"
+   ]
+  },
+  {
+   "id": "65a9c86a-d192-5563-984a-e61422c054ad",
+   "key": "kv12.bedroom.radiator",
+   "kind": "mep",
+   "type": "radiator",
+   "name": "Радиатор",
+   "parent": "f3b98b10-feaf-55db-be2b-636d53ff6825",
+   "placement": {
+    "pos": [
+     6.5,
+     0.15,
+     0.1
+    ],
+    "yaw": 0.0
+   },
+   "geom": {
+    "type": "point"
+   },
+   "src": {
+    "from": "demo"
+   },
+   "aliases": [
+    "батарея"
+   ]
+  },
+  {
+   "id": "758a112f-a3ce-5897-be3e-b092dd781939",
+   "key": "kv12.heat_route",
+   "kind": "mep",
+   "type": "pipe_pair",
+   "name": "Трубы отопления в стяжке",
+   "parent": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+   "geom": {
+    "type": "polyline",
+    "points": [
+     [
+      3.8,
+      8.8,
+      -0.04
+     ],
+     [
+      4.3,
+      8.8,
+      -0.04
+     ],
+     [
+      4.3,
+      0.3,
+      -0.04
+     ],
+     [
+      6.5,
+      0.3,
+      -0.04
+     ]
+    ],
+    "diameter": 0.016
+   },
+   "src": {
+    "from": "demo",
+    "acc": 0.5
+   }
+  },
+  {
+   "id": "79ef1378-7c20-5d6d-b415-160bbbb2b43c",
+   "key": "kv12.heating",
+   "kind": "system",
+   "type": "heating",
+   "name": "Отопление квартиры",
+   "parent": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+   "refs": [
+    {
+     "rel": "has_member",
+     "to": "bac650ed-bb32-5432-9162-2ac1fd218689"
+    },
+    {
+     "rel": "has_member",
+     "to": "65a9c86a-d192-5563-984a-e61422c054ad"
+    },
+    {
+     "rel": "has_member",
+     "to": "758a112f-a3ce-5897-be3e-b092dd781939"
+    }
+   ]
+  },
+  {
+   "id": "b831c8c3-430f-5bde-baf8-a879678fd728",
+   "key": "kv12.bedroom.light",
+   "kind": "device",
+   "type": "light",
+   "name": "Свет спальни",
+   "parent": "f3b98b10-feaf-55db-be2b-636d53ff6825",
+   "bind": {
+    "ha.entity": [
+     "light.bedroom"
+    ]
+   },
+   "src": {
+    "from": "demo"
+   }
+  }
+ ]
+}
