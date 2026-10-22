@@ -78,6 +78,11 @@
    "ifc": "IfcWindow",
    "ifc_type": "WINDOW"
   },
+  "entrance_door": {
+   "ru": "входная дверь",
+   "ifc": "IfcDoor",
+   "ifc_type": "DOOR"
+  },
   "*": {
    "ru": "дверь, балконный блок",
    "ifc": "IfcDoor",
@@ -117,6 +122,11 @@
   },
   "*": {
    "ru": "мебель",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "mirror": {
+   "ru": "зеркало",
    "ifc": "IfcFurniture",
    "ifc_type": "USERDEFINED"
   }
@@ -230,6 +240,31 @@
    "ru": "вентрешётка",
    "ifc": "IfcAirTerminal",
    "ifc_type": "GRILLE"
+  },
+  "bath": {
+   "ru": "ванна",
+   "ifc": "IfcSanitaryTerminal",
+   "ifc_type": "BATH"
+  },
+  "washbasin": {
+   "ru": "раковина",
+   "ifc": "IfcSanitaryTerminal",
+   "ifc_type": "WASHHANDBASIN"
+  },
+  "toilet": {
+   "ru": "унитаз",
+   "ifc": "IfcSanitaryTerminal",
+   "ifc_type": "TOILETPAN"
+  },
+  "shower": {
+   "ru": "душ",
+   "ifc": "IfcSanitaryTerminal",
+   "ifc_type": "SHOWER"
+  },
+  "towel_warmer": {
+   "ru": "полотенцесушитель",
+   "ifc": "IfcSpaceHeater",
+   "ifc_type": "USERDEFINED"
   }
  },
  "device": {
