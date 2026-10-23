@@ -162,3 +162,17 @@ def test_show_calls_ha_script(store, tmp_path):
     text = asyncio.run(srv.mcp.call_tool("show", {"what": "дрель"}))
     blocks = text[0] if isinstance(text, tuple) else text
     assert blocks[0].text.startswith("Показал на телевизоре план: Спальня")
+
+
+def test_show_does_not_wait_past_mcp_limit(store, tmp_path, monkeypatch):
+    import cherrybim.server.app as app_mod
+    monkeypatch.setattr(app_mod, "SHOW_WAIT", 0.05)
+    srv = Server(store, HA(url="http://ha.invalid", token="t"), media_dir=str(tmp_path / "cherrybim"),
+                 show_script="script.na_tv")
+
+    async def slow_call(*a, **k):
+        await asyncio.sleep(1)
+        return {"ok": True}
+    srv.ha.call = slow_call
+    res = asyncio.run(srv.show("ящик 2"))
+    assert res["ok"] and res["status"] == "sent"

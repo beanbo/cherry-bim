@@ -44,6 +44,7 @@ STATIC = Path(__file__).parent / "static"
 TOGGLE_DOMAINS = {"light", "switch", "fan"}          # что можно щёлкать из просмотрщика; замков тут нет
 DEFAULT_ALLOW = "127.0.0.1/32,::1/128,172.30.32.1/32,172.30.32.2/32"   # аддон HA: ядро и Supervisor (ingress)
 MAX_PHOTO = 12 * 2 ** 20
+SHOW_WAIT = 7.0
 REL_RU = {"finishes": "где", "serves": "обслуживает", "feeds": "питает", "controls": "управляет", "supplied_by": "от"}
 
 PHOTO_PROMPT = (
@@ -312,9 +313,13 @@ class Server:
         name = f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}.png"
         (folder / name).write_bytes(png)
         script = self.show_script.split(".", 1)[-1]
+        call = self.ha.call("script", script, {"put": f"{self.media_dir.name}/show/{name}", "zagolovok": e.name,
+                                               "podpis": self.store.short_path(e.id)}, response=True, timeout=30)
         try:
-            res = await self.ha.call("script", script, {"put": f"{self.media_dir.name}/show/{name}", "zagolovok": e.name,
-                                                        "podpis": self.store.short_path(e.id)}, response=True, timeout=30)
+            # MCP-клиент HA ждёт инструмент не больше 10 с: дольше 7 с подтверждения не ждём, скрипт доработает сам
+            res = await asyncio.wait_for(call, timeout=SHOW_WAIT)
+        except asyncio.TimeoutError:
+            return {"ok": True, "status": "sent", "what": self.store.short_path(e.id)}
         except HAError as err:
             return {"ok": False, "error": str(err)}
         res = res if isinstance(res, dict) else {}
@@ -418,6 +423,8 @@ class Server:
                 r = await self.show(what)
             except (StoreError, ValueError) as err:
                 return str(err)
+            if r.get("ok") and r.get("status") == "sent":
+                return f"Отправил на телевизор план: {r['what']}. Подтверждения от телевизора пока нет."
             if r.get("ok"):
                 return f"Показал на телевизоре план: {r['what']}."
             if r.get("tv_no_answer"):
