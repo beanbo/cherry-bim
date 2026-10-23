@@ -44,7 +44,7 @@ STATIC = Path(__file__).parent / "static"
 TOGGLE_DOMAINS = {"light", "switch", "fan"}          # что можно щёлкать из просмотрщика; замков тут нет
 DEFAULT_ALLOW = "127.0.0.1/32,::1/128,172.30.32.1/32,172.30.32.2/32"   # аддон HA: ядро и Supervisor (ingress)
 MAX_PHOTO = 12 * 2 ** 20
-SHOW_WAIT = 7.0
+SHOW_WAIT = 3.0       # MCP-клиент HA обрывает вызов раньше 5 с (проверено 23.10.2026: 5,1 с — ошибка)
 REL_RU = {"finishes": "где", "serves": "обслуживает", "feeds": "питает", "controls": "управляет", "supplied_by": "от"}
 
 PHOTO_PROMPT = (
@@ -316,7 +316,7 @@ class Server:
         call = self.ha.call("script", script, {"put": f"{self.media_dir.name}/show/{name}", "zagolovok": e.name,
                                                "podpis": self.store.short_path(e.id)}, response=True, timeout=30)
         try:
-            # MCP-клиент HA ждёт инструмент не больше 10 с: дольше 7 с подтверждения не ждём, скрипт доработает сам
+            # дольше SHOW_WAIT подтверждения не ждём: скрипт в HA доработает сам, план уже в очереди
             res = await asyncio.wait_for(call, timeout=SHOW_WAIT)
         except asyncio.TimeoutError:
             return {"ok": True, "status": "sent", "what": self.store.short_path(e.id)}
