@@ -583,7 +583,7 @@ function select(id, { fly: doFly = true } = {}) {
   if (e._inUnit && S.view !== "unit") setView("unit", false);
   if (e.kind === "mep" && !S.mep) { S.mep = true; applyView(); }
   const target = meshFor(e.id);
-  for (const rid of related(e)) { const o = meshFor(rid); if (o && o !== target) highlight(o, COL.rel); }
+  for (const rid of related(e)) { const o = S.obj.get(rid); if (o && o !== target) highlight(o, COL.rel); }   // без подъёма к родителю: группа без геометрии не подсвечивает всю квартиру
   highlight(target, COL.sel);
   const shelf = target && [S.by.get(target.userData.id), ...ancestors(target.userData.id)].filter(a => ["storage", "furniture"].includes(a.kind)).pop();
   if (target && doFly && shelf && e._inUnit && shelf.geom?.type === "box") frontView(target, shelf);

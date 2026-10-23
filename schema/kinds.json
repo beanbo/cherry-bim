@@ -120,6 +120,11 @@
    "ifc": "IfcFurniture",
    "ifc_type": "USERDEFINED"
   },
+  "kitchen_unit": {
+   "ru": "кухонные шкафы",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
   "*": {
    "ru": "мебель",
    "ifc": "IfcFurniture",
@@ -251,6 +256,11 @@
    "ifc": "IfcSanitaryTerminal",
    "ifc_type": "WASHHANDBASIN"
   },
+  "sink": {
+   "ru": "мойка",
+   "ifc": "IfcSanitaryTerminal",
+   "ifc_type": "SINK"
+  },
   "toilet": {
    "ru": "унитаз",
    "ifc": "IfcSanitaryTerminal",
@@ -312,6 +322,36 @@
    "ru": "робот-пылесос",
    "ifc": "IfcElectricAppliance",
    "ifc_type": "USERDEFINED"
+  },
+  "fridge": {
+   "ru": "холодильник",
+   "ifc": "IfcElectricAppliance",
+   "ifc_type": "FRIDGE_FREEZER"
+  },
+  "oven": {
+   "ru": "духовой шкаф",
+   "ifc": "IfcElectricAppliance",
+   "ifc_type": "ELECTRICCOOKER"
+  },
+  "hob": {
+   "ru": "варочная панель",
+   "ifc": "IfcElectricAppliance",
+   "ifc_type": "ELECTRICCOOKER"
+  },
+  "microwave": {
+   "ru": "микроволновка",
+   "ifc": "IfcElectricAppliance",
+   "ifc_type": "MICROWAVE"
+  },
+  "dishwasher": {
+   "ru": "посудомоечная машина",
+   "ifc": "IfcElectricAppliance",
+   "ifc_type": "DISHWASHER"
+  },
+  "washing_machine": {
+   "ru": "стиральная машина",
+   "ifc": "IfcElectricAppliance",
+   "ifc_type": "WASHINGMACHINE"
   },
   "*": {
    "ru": "устройство",
