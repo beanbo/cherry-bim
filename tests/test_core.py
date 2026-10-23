@@ -85,6 +85,7 @@ def test_geojson_respects_audience(twin):
 
 def test_kinds_table():
     assert lookup(Kind.mep, "radiator")[1] == "IfcSpaceHeater"
+    assert lookup(Kind.mep, "water_filter")[1:] == ("IfcFilter", "WATERFILTER")
     assert lookup(Kind.storage, "unknown-type")[1] == "IfcFurniture"
     assert as_json()["section"]["*"]["ifc"] == "IfcBuilding"
 

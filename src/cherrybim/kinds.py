@@ -61,6 +61,7 @@ KINDS: dict[tuple[Kind, str | None], tuple[str, str, str | None]] = {
     (Kind.mep, "toilet"): ("унитаз", "IfcSanitaryTerminal", "TOILETPAN"),
     (Kind.mep, "shower"): ("душ", "IfcSanitaryTerminal", "SHOWER"),
     (Kind.mep, "towel_warmer"): ("полотенцесушитель", "IfcSpaceHeater", "USERDEFINED"),
+    (Kind.mep, "water_filter"): ("фильтр для воды", "IfcFilter", "WATERFILTER"),
     (Kind.furniture, "mirror"): ("зеркало", "IfcFurniture", "USERDEFINED"),
     (Kind.device, "light"): ("свет", "IfcLightFixture", "POINTSOURCE"),
     (Kind.device, "lamp"): ("лампа", "IfcLightFixture", "POINTSOURCE"),
