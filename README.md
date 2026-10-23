@@ -66,6 +66,10 @@ python -m cherrybim.server --packages examples/demo --data ./data --port 8099 --
 
 Откройте http://127.0.0.1:8099/: 3D-план (виды «Квартира», «Дом», «Квартал»), поиск, карточки, учёт вещей. По адресу `/mcp` тот же процесс отдаёт MCP-инструменты `find`, `contents`, `add_item`, `move_item`, `remove_item` — их можно подключить к голосовому ассистенту. С переменными `HA_URL` и `HA_TOKEN` (или внутри аддона Home Assistant) на плане видны живые состояния привязанных сущностей. Устройство сервера — в [docs/DESIGN.md](docs/DESIGN.md#сервер-02).
 
+### Аддон Home Assistant
+
+`ha-addon/cherrybim` — локальный аддон: панель в боковом меню (ingress), состояния HA через Supervisor, MCP для голосового ассистента по адресу `http://local-cherrybim:8099/mcp`. Установка и опции — [ha-addon/cherrybim/DOCS.md](ha-addon/cherrybim/DOCS.md).
+
 IFC: `pip install -e .[ifc]`, затем `from cherrybim.export_ifc import to_ifc`. IfcOpenShell не ставится на Alpine (нет колёс musllinux), поэтому для выгрузки в контейнере нужен Debian.
 
 ## Структура
@@ -75,6 +79,7 @@ src/cherrybim/    model (pydantic), twin, geo, kinds, export (GeoJSON), export_i
   server/         сервер: store (вещи), ha (Home Assistant), app (API, MCP), static/ (просмотрщик)
 schema/           JSON Schema и словарь типов — генерируются tools/export_schema.py
 examples/demo/    выдуманный пример без реальных адресов
+ha-addon/         аддон Home Assistant (Supervisor, ingress)
 docs/DESIGN.md    архитектура, решения и соответствие стандартам
 tests/            pytest
 ```

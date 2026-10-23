@@ -1,0 +1,20 @@
+#!/command/with-contenv bashio
+# vim: ft=bash
+# shellcheck shell=bash
+# ==============================================================================
+# Сервер Cherry BiM: просмотрщик (ingress), API вещей, MCP для голосового ассистента
+# ==============================================================================
+PACKAGES="$(bashio::config 'packages')"
+DATA="$(bashio::config 'data')"
+MEDIA=/media/cherrybim
+
+mkdir -p "${PACKAGES}" "${DATA}" "${MEDIA}"
+
+args=(--packages "${PACKAGES}" --data "${DATA}" --media "${MEDIA}"
+      --audience "$(bashio::config 'audience')" --port 8099 --mcp-name cherrybim)
+if bashio::config.has_value 'ai_task'; then
+    args+=(--ai-task "$(bashio::config 'ai_task')")
+fi
+
+bashio::log.info "Пакеты двойника: ${PACKAGES}, вещи: ${DATA}"
+exec python3 -m cherrybim.server "${args[@]}"
