@@ -29,6 +29,7 @@ const FURN = { bed: 0xcdb79e, sofa: 0x9fb3c8, desk: 0xbf9f78, dining_table: 0xbf
   nightstand: 0xc9b08d, wardrobe: 0xd8cdbd, vanity: 0xf2f2f2, pet_bowl: 0x5d8aa8, mirror: 0xcfe3ee };
 const FEATURE = [["playground", 0xf2c14e], ["parking", 0xa8b0b8], ["gazebo", 0xb7895a], ["shelter", 0xb7895a],
   ["pitch", 0x7fb069], ["sport", 0x7fb069], ["grass", 0xa5d17a], ["garden", 0xa5d17a], ["park", 0xa5d17a]];
+const NEIGHBOUR = [0xc9d4e3, 0xd8cde3, 0xcfe0d2, 0xe6d5c3, 0xe3cdd2, 0xd2dde6];
 const ROOM = [0xf3e6d3, 0xe0ecdc, 0xdce7f2, 0xf2dfe3, 0xe8e1f2, 0xefeccf, 0xd9ecec, 0xf0e2d0, 0xe2e9d4, 0xe6dcef];
 const DEV_H = { light: -0.06, lamp: 0.9, ac: 2.2, tv: 1.1, speaker: 0.95, breezer: 1.6 };   // light — от потолка
 const VAC = { docked: "на базе", cleaning: "убирает", returning: "едет на базу", idle: "стоит", paused: "пауза", error: "ошибка" };
@@ -127,6 +128,7 @@ function index(data) {
     e._inUnit = !!best && (e.id === best.id || chain.some(a => a.id === best.id));
     e._bld = (e.kind === "building" ? e : chain.find(a => a.kind === "building"))?.id;
     e._myBld = !!bld && e._bld === bld.id;
+    e._floor = !!best && !e._inUnit && chain.some(a => a.id === best.parent);   // на том же этаже, что и квартира
   }
 }
 
@@ -216,7 +218,8 @@ function makeObject(e, nextRoomColor) {
     if (k === "unit") {                                   // квартира — плита под полом; объём только при выделении
       const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.08, bevelEnabled: false });
       geo.translate(0, 0, (g.z0 || 0) - 0.08);
-      const m = new THREE.Mesh(geo, mat(0xd6d0c6));
+      const n = parseInt(e.props?.number, 10);          // соседи по этажу — каждая своим цветом
+      const m = new THREE.Mesh(geo, mat(e === S.unit ? 0xd6d0c6 : NEIGHBOUR[(isNaN(n) ? 0 : n) % NEIGHBOUR.length]));
       m.userData.floor = true;
       m.userData.shape = shape;
       m.userData.h = g.height || 2.5;
@@ -225,7 +228,8 @@ function makeObject(e, nextRoomColor) {
     if (k === "space") {                                  // комната — пол; объём рисуется только при выделении
       const geo = new THREE.ShapeGeometry(shape);
       geo.translate(0, 0, (g.z0 || 0) + 0.004);
-      const m = new THREE.Mesh(geo, mat(t === "loggia" ? 0xd5e1e8 : nextRoomColor(), { side: THREE.DoubleSide }));
+      const col = t === "loggia" ? 0xd5e1e8 : t === "common" ? 0xdfe3e8 : t === "lift_shaft" ? 0x8f9aa6 : nextRoomColor();
+      const m = new THREE.Mesh(geo, mat(col, { side: THREE.DoubleSide }));
       m.userData.floor = true;
       m.userData.shape = shape;
       m.userData.h = g.height || 2.5;
@@ -359,6 +363,9 @@ function makeLabels() {
     if (e.kind === "space" && e._inUnit) {
       const c = new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3());
       add(e, c, "unit");
+    } else if (e._floor && (e.kind === "unit" || e.kind === "space") && e.kind !== "section") {
+      const c = new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3());
+      add({ ...e, name: e.kind === "unit" && e.props?.number ? `кв. ${e.props.number}` : e.name }, c, "house");
     } else if (e.kind === "section") {
       const b = new THREE.Box3().setFromObject(o);
       add(e, new THREE.Vector3((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, b.max.z + 1.5), e._myBld ? "house" : "-");
@@ -380,6 +387,7 @@ function visibleIn(e) {
   if (v === "unit") return e._inUnit && (S.mep || k !== "mep");
   if (v === "house") {
     if (e._inUnit) return ["wall", "space", "opening", "unit"].includes(k);
+    if (e._myBld && e._floor && ["unit", "space", "mep"].includes(k)) return true;   // соседи, общие зоны, щиток этажа
     return e._myBld && (k === "section" || (k === "building" && !hasSectionGeom(e)));
   }
   if (e._inUnit) return k === "unit" || (k === "space" && !S.unit?.geom);
@@ -391,7 +399,7 @@ function applyView() {
     const e = S.by.get(id);
     o.visible = visibleIn(e);
     let over = null;
-    if (S.view === "house" && !e._inUnit && o.visible) over = GHOST;
+    if (S.view === "house" && !e._inUnit && o.visible && !e._floor) over = GHOST;
     if (S.view === "site" && e._inUnit) over = ACCENT;
     if (S.view === "site" && e._myBld && e.kind === "section") over = GHOST2;
     o.traverse(c => {
@@ -581,6 +589,7 @@ function select(id, { fly: doFly = true } = {}) {
   if (!S.sel) { $("#card").hidden = true; setHash(); return; }
   const e = S.sel;
   if (e._inUnit && S.view !== "unit") setView("unit", false);
+  else if (e._floor && S.view !== "house") setView("house", false);
   if (e.kind === "mep" && !S.mep) { S.mep = true; applyView(); }
   const target = meshFor(e.id);
   for (const rid of related(e)) { const o = S.obj.get(rid); if (o && o !== target) highlight(o, COL.rel); }   // без подъёма к родителю: группа без геометрии не подсвечивает всю квартиру
@@ -700,6 +709,9 @@ function renderCard(e) {
       + `<input name="qty" type="number" min="0" step="any" placeholder="шт."><button class="btn main">Записать</button></form>`;
     if (S.features.photos) h += `<div class="row"><button class="btn" data-act="photo">Фото → вещи</button></div><div id="photo"></div>`;
   }
+  const share = [`<a href="api/plan.png?e=${encodeURIComponent(e.id)}&theme=light&label=1" target="_blank" rel="noopener">План картинкой</a>`];
+  if (S.features.show) share.unshift(`<button class="btn" data-act="tv">На телевизор</button>`);
+  h += `<div class="row">${share.join("")}</div>`;
   if (e.kind === "space" && S.features.vacuum) {
     const btns = [];
     if (e.bind?.["dreame.segment"]) btns.push(`<button class="btn" data-act="vac-clean">Убрать комнату</button>`);
@@ -755,6 +767,12 @@ $("#card").addEventListener("click", async ev => {
     else if (act === "move") pickPlace(e);
     else if (act === "edit") editItem(e);
     else if (act === "photo") photoFlow(e.id);
+    else if (act === "tv") {
+      b.disabled = true;
+      const r = await send("api/show", { ref: e.id });
+      toast(r.ok ? "Показал на телевизоре" : r.tv_no_answer ? "Телевизор не ответил: UmediaPlus не открыт" : r.error || "Не получилось");
+      b.disabled = false;
+    }
     else if (act === "vac-clean" && confirm(`Отправить пылесос убирать: ${e.name}?`)) { await send("api/vacuum", { do: "clean", space: e.id }); toast("Пылесос поехал"); }
     else if (act === "vac-goto" && confirm("Отправить пылесос в эту точку?")) { await send("api/vacuum", { do: "goto", at: [S.floorHit.x, S.floorHit.y] }); toast("Пылесос едет"); }
   } catch (err) { toast(err.message); b.disabled = false; }

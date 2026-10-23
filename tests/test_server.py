@@ -128,3 +128,37 @@ def test_vacuum_robot_and_site_roundtrip(store, demo):
     assert abs(fx - sx) < 1e-3 and abs(fy - sy) < 1e-3
     state = srv._decorate("camera.robot_map", {"state": "x", "attributes": {"vacuum_position": {"x": 0, "y": 0, "a": 0}}})
     assert len(state["pose"]) == 4
+
+
+def test_plan_png(store):
+    from cherrybim.plan import render_plan
+    png = render_plan(store.twin, store.twin.by_key["kv12.bedroom.wardrobe.dr2"].id, size=(800, 450))
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    from PIL import Image
+    import io
+    assert Image.open(io.BytesIO(png)).size == (800, 450)
+
+
+def test_http_plan_and_show_not_configured(client):
+    r = client.get("/api/plan.png", params={"e": "ящик 2", "w": 640, "h": 360, "label": 1})
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    assert client.post("/api/show", json={"ref": "ящик 2"}).json() == {"ok": False, "error": "показ на экране не настроен"}
+
+
+def test_show_calls_ha_script(store, tmp_path):
+    srv = Server(store, HA(url="http://ha.invalid", token="t"), media_dir=str(tmp_path / "cherrybim"),
+                 show_script="script.na_tv")
+    calls = []
+
+    async def fake_call(domain, service, data=None, response=False, timeout=20):
+        calls.append((domain, service, data))
+        return {"ok": True, "status": "shown"}
+    srv.ha.call = fake_call
+    res = asyncio.run(srv.show("ящик 2"))
+    assert res["ok"] and res["what"].endswith("Ящик 2")
+    (domain, service, data), = calls
+    assert (domain, service) == ("script", "na_tv") and data["put"].startswith("cherrybim/show/")
+    assert (tmp_path / data["put"]).read_bytes()[:4] == b"\x89PNG"
+    text = asyncio.run(srv.mcp.call_tool("show", {"what": "дрель"}))
+    blocks = text[0] if isinstance(text, tuple) else text
+    assert blocks[0].text.startswith("Показал на телевизоре план: Спальня")

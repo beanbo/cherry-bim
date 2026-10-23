@@ -17,6 +17,8 @@ KINDS: dict[tuple[Kind, str | None], tuple[str, str, str | None]] = {
     (Kind.unit, None): ("квартира, помещение", "IfcSpace", "INTERNAL"),       # CompositionType COMPLEX
     (Kind.space, None): ("комната", "IfcSpace", "INTERNAL"),
     (Kind.space, "loggia"): ("лоджия", "IfcSpace", "INTERNAL"),
+    (Kind.space, "common"): ("общая зона этажа", "IfcSpace", "INTERNAL"),
+    (Kind.space, "lift_shaft"): ("шахта лифта", "IfcSpace", "INTERNAL"),
     (Kind.zone, None): ("зона", "IfcZone", None),
     (Kind.wall, "exterior"): ("наружная стена", "IfcWall", "SOLIDWALL"),
     (Kind.wall, None): ("стена, перегородка", "IfcWall", "PARTITIONING"),

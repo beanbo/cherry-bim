@@ -1,7 +1,7 @@
 # Локальный аддон Home Assistant: 3D-двойник жилья, учёт вещей и MCP для голосового ассистента.
 # Скопируйте папку в /addons на HA (шара Samba «addons»), «Магазин аддонов → ⋮ → Проверить обновления»,
 # установите «Cherry BiM». Пакеты двойника положите в /share/cherrybim/packages. Описание — DOCS.md.
-version: 0.2.0
+version: 0.3.0
 slug: cherrybim
 name: Cherry BiM
 description: 3D-план жилья, учёт вещей «что где лежит», MCP-инструменты для голосового ассистента
@@ -24,9 +24,11 @@ options:
   packages: /share/cherrybim/packages
   data: /share/cherrybim
   ai_task: ""
+  show_script: ""
   audience: household
 schema:
   packages: str
   data: str
   ai_task: str?
+  show_script: str?
   audience: list(public|residents|household|owner)

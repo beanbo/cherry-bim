@@ -44,6 +44,16 @@
    "ru": "лоджия",
    "ifc": "IfcSpace",
    "ifc_type": "INTERNAL"
+  },
+  "common": {
+   "ru": "общая зона этажа",
+   "ifc": "IfcSpace",
+   "ifc_type": "INTERNAL"
+  },
+  "lift_shaft": {
+   "ru": "шахта лифта",
+   "ifc": "IfcSpace",
+   "ifc_type": "INTERNAL"
   }
  },
  "zone": {

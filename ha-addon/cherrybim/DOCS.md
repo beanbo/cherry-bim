@@ -16,11 +16,12 @@
 | `packages` | `/share/cherrybim/packages` | пакеты двойника, только чтение; новые файлы подхватываются без перезапуска |
 | `data` | `/share/cherrybim` | вещи: `items.twin.json`, вычеркнутые — `trash.jsonl` |
 | `ai_task` | пусто | сущность `ai_task.*` с поддержкой вложений: включает кнопку «Фото → вещи» |
+| `show_script` | пусто | скрипт HA, который выводит картинку из медиа на экран (поля `put`, `zagolovok`, `podpis`): кнопка «На телевизор» и MCP-инструмент `show` |
 | `audience` | `household` | что показывать: `public`, `residents`, `household`, `owner` |
 
 ## Голосовой ассистент
 
-Интеграция «Model Context Protocol» с адресом `http://local-cherrybim:8099/mcp` даёт агенту инструменты `find`, `contents`, `add_item`, `move_item`, `remove_item`. Добавьте её LLM API агенту в настройках разговора.
+Интеграция «Model Context Protocol» с адресом `http://local-cherrybim:8099/mcp` даёт агенту инструменты `find`, `contents`, `add_item`, `move_item`, `remove_item`, `show`. Добавьте её LLM API агенту в настройках разговора.
 
 ## Безопасность
 

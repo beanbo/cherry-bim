@@ -5,14 +5,15 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Ядро Cherry BiM — из открытого репозитория: тег или коммит (архив GitHub, git в образе не нужен).
 # Зависимости закреплены на версиях, с которыми сервер проверялся 23.10.2026; mcp 2.x несовместим.
-ARG CHERRYBIM_REF=v0.2.0
+ARG CHERRYBIM_REF=v0.3.0
 
-# Системный Python (trixie: 3.13), как в аддоне silero_tts.
+# Системный Python (trixie: 3.13), как в аддоне silero_tts; DejaVu — кириллица на картинке плана.
 RUN \
     apt-get update \
     && apt-get install -y --no-install-recommends \
         python3 \
         python3-pip \
+        fonts-dejavu-core \
     && rm -f /usr/lib/python3*/EXTERNALLY-MANAGED \
     && pip3 install --no-cache-dir \
         "cherry-bim[server] @ https://github.com/beanbo/cherry-bim/archive/${CHERRYBIM_REF}.tar.gz" \
@@ -22,6 +23,7 @@ RUN \
         "httpx==0.28.1" \
         "websockets==17.3" \
         "pydantic==2.14.1" \
+        "pillow==12.3.0" \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /

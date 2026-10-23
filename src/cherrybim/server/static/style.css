@@ -137,3 +137,4 @@ form.add .btn { grid-column: 1 / -1; }
   #card { left: 8px; right: 8px; width: auto; top: auto; bottom: 8px; max-height: 58dvh; border-radius: 14px; }
   #status { display: none; }
 }
+.row a { align-self: center; }

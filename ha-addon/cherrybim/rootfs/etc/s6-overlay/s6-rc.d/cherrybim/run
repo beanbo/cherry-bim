@@ -15,6 +15,9 @@ args=(--packages "${PACKAGES}" --data "${DATA}" --media "${MEDIA}"
 if bashio::config.has_value 'ai_task'; then
     args+=(--ai-task "$(bashio::config 'ai_task')")
 fi
+if bashio::config.has_value 'show_script'; then
+    args+=(--show-script "$(bashio::config 'show_script')")
+fi
 
 bashio::log.info "Пакеты двойника: ${PACKAGES}, вещи: ${DATA}"
 exec python3 -m cherrybim.server "${args[@]}"

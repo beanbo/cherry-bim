@@ -28,13 +28,14 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, PlainTextResponse
+from starlette.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from ..kinds import lookup
 from ..model import Kind, Privacy
+from ..plan import render_plan
 from .ha import HA, HAError
 from .store import PLACE_KINDS, Store, StoreError
 
@@ -46,11 +47,12 @@ MAX_PHOTO = 12 * 2 ** 20
 REL_RU = {"finishes": "где", "serves": "обслуживает", "feeds": "питает", "controls": "управляет", "supplied_by": "от"}
 
 PHOTO_PROMPT = (
-    "На фото — содержимое места хранения ({place}). Перечисли вещи, которые видны и которые хозяин может "
-    "потом искать: инструменты, документы, лекарства, зарядки, кабели, батарейки, посуду, одежду по типам. "
-    "Название короткое, по-русски, в именительном падеже, с главным признаком (цвет, размер, марка), "
-    "если он виден: «Дрель-шуруповёрт Bosch», «Батарейки AA». Похожие мелочи объединяй: «Кабели USB-C (3 шт.)». "
-    "Не выдумывай того, чего не видно. Если вещей нет или фото не про хранение, верни пустой список.")
+    "На фото — содержимое места хранения ({place}). Перечисли вещи, которые видны и которые потом будут искать. "
+    "Называй так, как спросят вслух: «косметичка», «ватные палочки», «шампунь», «дрель-шуруповёрт», а не "
+    "«мешок фиолетовый» или «флакон синий». Именительный падеж, по-русски, с главным признаком, если он виден "
+    "(марка, размер, цвет): «Дрель-шуруповёрт Bosch», «Батарейки AA». Похожие мелочи объединяй и пиши количество: "
+    "«Кабели USB-C (3 шт.)». Вещь видна частично — тоже назови. Не выдумывай того, чего не видно. "
+    "Если вещей нет или фото не про хранение, верни пустой список.")
 
 
 class _Static(StaticFiles):
@@ -66,10 +68,11 @@ class _Static(StaticFiles):
 # ── сборка приложения ────────────────────────────────────────────────────────
 class Server:
     def __init__(self, store: Store, ha: HA, media_dir: str | None = None, ai_task: str | None = None,
-                 mcp_name: str = "cherrybim", allow: str = DEFAULT_ALLOW):
+                 mcp_name: str = "cherrybim", allow: str = DEFAULT_ALLOW, show_script: str | None = None):
         self.store, self.ha = store, ha
         self.media_dir = Path(media_dir) if media_dir else None
         self.ai_task = ai_task
+        self.show_script = show_script     # скрипт HA, который выводит картинку из медиа на экран (ТВ)
         self.allow = [ipaddress.ip_network(n.strip(), strict=False) for n in allow.split(",") if n.strip()]
         self.clients: set[asyncio.Queue] = set()
         self.loop: asyncio.AbstractEventLoop | None = None
@@ -165,7 +168,8 @@ class Server:
         snap = self.store.snapshot()
         snap["ha"] = self.ha_status()
         snap["features"] = {"photos": bool(self.media_dir and self.ai_task and self.ha.enabled),
-                            "vacuum": bool(self.vacuum and self.ha.enabled), "toggle": self.ha.enabled}
+                            "vacuum": bool(self.vacuum and self.ha.enabled), "toggle": self.ha.enabled,
+                            "show": self.can_show}
         snap["states"] = self.states()
         return JSONResponse(snap)
 
@@ -276,6 +280,53 @@ class Server:
             items = [s.strip(" -•") for s in items.splitlines() if s.strip(" -•")]
         return JSONResponse({"place": place.id, "photo": media_id, "items": [str(i)[:120] for i in items][:60]})
 
+    # ── план картинкой и показ на экране ────────────────────────────────────
+    @property
+    def can_show(self) -> bool:
+        return bool(self.show_script and self.media_dir and self.ha.enabled)
+
+    async def api_plan(self, request: Request):
+        q = request.query_params
+        try:
+            ref = q.get("e")
+            focus = self.store.resolve(ref).id if ref else None
+            w = max(320, min(int(q.get("w", 1920)), 4096))
+            h = max(240, min(int(q.get("h", 1080)), 4096))
+            label = self.store.short_path(focus) if focus and q.get("label") else None
+            png = render_plan(self.store.twin, focus, self.store.audience, size=(w, h),
+                              theme=q.get("theme", "dark"), label=label)
+        except (StoreError, ValueError) as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        return Response(png, media_type="image/png", headers={"Cache-Control": "no-cache"})
+
+    async def show(self, ref: str) -> dict:
+        """План с подсвеченным местом → медиа HA → скрипт показа (например, экран «Claude» на ТВ)."""
+        if not self.can_show:
+            return {"ok": False, "error": "показ на экране не настроен"}
+        e = self.store.resolve(ref)
+        png = render_plan(self.store.twin, e.id, self.store.audience, theme="dark")
+        folder = self.media_dir / "show"
+        folder.mkdir(parents=True, exist_ok=True)
+        for old in sorted(folder.glob("*.png"))[:-20]:  # хватит последних двадцати
+            old.unlink(missing_ok=True)
+        name = f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}.png"
+        (folder / name).write_bytes(png)
+        script = self.show_script.split(".", 1)[-1]
+        try:
+            res = await self.ha.call("script", script, {"put": f"{self.media_dir.name}/show/{name}", "zagolovok": e.name,
+                                                        "podpis": self.store.short_path(e.id)}, response=True, timeout=30)
+        except HAError as err:
+            return {"ok": False, "error": str(err)}
+        res = res if isinstance(res, dict) else {}
+        return {**res, "ok": bool(res.get("ok")), "what": self.store.short_path(e.id)}
+
+    async def api_show(self, request: Request):
+        body = await request.json()
+        try:
+            return JSONResponse(await self.show(body.get("ref", "")))
+        except (StoreError, ValueError) as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
     async def live(self, ws: WebSocket):
         if not self._allowed(ws.scope):
             await ws.close(code=1008)
@@ -359,6 +410,21 @@ class Server:
             return f"Переложил: {e.name} — теперь {st.short_path(e.parent)}."
 
         @mcp.tool()
+        async def show(what: str) -> str:
+            """Показать на телевизоре план квартиры с подсвеченным местом: где лежит вещь, где шкаф или ящик,
+            розетка, щиток, узел отопления. Для «покажи на телевизоре, где …», «покажи на экране …».
+            what — что показать, словами или id из find."""
+            try:
+                r = await self.show(what)
+            except (StoreError, ValueError) as err:
+                return str(err)
+            if r.get("ok"):
+                return f"Показал на телевизоре план: {r['what']}."
+            if r.get("tv_no_answer"):
+                return "План готов, но телевизор не ответил: приложение UmediaPlus на нём не открыто."
+            return "Не получилось показать: " + str(r.get("error") or "нет ответа")
+
+        @mcp.tool()
         def remove_item(item: str, by: str | None = None) -> str:
             """Вычеркнуть вещь из учёта: выбросили, отдали, закончилась. Запись можно вернуть из корзины."""
             try:
@@ -393,6 +459,8 @@ class Server:
             Route("/api/call", self.api_call, methods=["POST"]),
             Route("/api/vacuum", self.api_vacuum, methods=["POST"]),
             Route("/api/photo", self.api_photo, methods=["POST"]),
+            Route("/api/plan.png", self.api_plan),
+            Route("/api/show", self.api_show, methods=["POST"]),
             WebSocketRoute("/api/live", self.live),
             *mcp_app.routes,
             Mount("/static", _Static(directory=STATIC), name="static"),
@@ -469,11 +537,14 @@ def main(argv=None) -> None:
     ap.add_argument("--port", type=int, default=int(env("CHERRYBIM_PORT", "8099")))
     ap.add_argument("--allow", default=env("CHERRYBIM_ALLOW", DEFAULT_ALLOW), help="разрешённые сети через запятую")
     ap.add_argument("--mcp-name", default=env("CHERRYBIM_MCP_NAME", "cherrybim"))
+    ap.add_argument("--show-script", default=env("CHERRYBIM_SHOW_SCRIPT"),
+                    help="скрипт HA для показа картинки на экране: поля put (путь в медиа), zagolovok, podpis")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     warnings.filterwarnings("ignore", message=".*incomplete definition.*")    # шум pydantic-settings из mcp
     store = Store(a.packages, a.data, Privacy(a.audience))
-    srv = Server(store, HA(), media_dir=a.media, ai_task=a.ai_task, mcp_name=a.mcp_name, allow=a.allow)
+    srv = Server(store, HA(), media_dir=a.media, ai_task=a.ai_task, mcp_name=a.mcp_name, allow=a.allow,
+                 show_script=a.show_script)
     log.info("пакетов %d, сущностей %d, вещей %d", len(store.base), len(store.twin.by_id), len(store.items.entities))
     import uvicorn
     uvicorn.run(srv.app(), host=a.host, port=a.port, log_config=None, access_log=False, timeout_graceful_shutdown=3,

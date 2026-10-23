@@ -4,7 +4,7 @@
 
 *Open-source core for residential digital twins, from a city block down to a drawer. A compact JSON model aligned with IFC 4.3, GeoJSON/IMDF, CityJSON and Brick. Python (pydantic) is the source of truth, JSON Schema serves other languages, and IFC4 export goes through IfcOpenShell. Docs are in Russian.*
 
-> Статус: v0.2, ранняя версия. Формат может меняться до 1.0.
+> Статус: v0.3, ранняя версия. Формат может меняться до 1.0.
 
 ## Зачем
 
@@ -64,7 +64,7 @@ python examples/demo/build_demo.py
 python -m cherrybim.server --packages examples/demo --data ./data --port 8099 --allow 127.0.0.1/32
 ```
 
-Откройте http://127.0.0.1:8099/: 3D-план (виды «Квартира», «Дом», «Квартал»), поиск, карточки, учёт вещей. По адресу `/mcp` тот же процесс отдаёт MCP-инструменты `find`, `contents`, `add_item`, `move_item`, `remove_item` — их можно подключить к голосовому ассистенту. С переменными `HA_URL` и `HA_TOKEN` (или внутри аддона Home Assistant) на плане видны живые состояния привязанных сущностей. Устройство сервера — в [docs/DESIGN.md](docs/DESIGN.md#сервер-02).
+Откройте http://127.0.0.1:8099/: 3D-план (виды «Квартира», «Дом», «Квартал»), поиск, карточки, учёт вещей. По адресу `/mcp` тот же процесс отдаёт MCP-инструменты `find`, `contents`, `add_item`, `move_item`, `remove_item` и `show` — их можно подключить к голосовому ассистенту. `GET /api/plan.png?e=<место>` отдаёт 2D-план с подсвеченным местом. С `--show-script` план выводится на экран скриптом Home Assistant: поля `put` (путь в медиа), `zagolovok`, `podpis`. С переменными `HA_URL` и `HA_TOKEN` (или внутри аддона Home Assistant) на плане видны живые состояния привязанных сущностей. Устройство сервера — в [docs/DESIGN.md](docs/DESIGN.md#сервер-02).
 
 ### Аддон Home Assistant
 
