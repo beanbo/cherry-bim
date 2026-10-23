@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cherry-bim"
-version = "0.3.1"
+version = "0.3.2"
 description = "Открытое ядро цифрового двойника жилья: от квартала до полки в шкафу"
 readme = "README.md"
 license = { text = "MIT" }
