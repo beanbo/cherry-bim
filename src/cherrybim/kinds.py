@@ -77,6 +77,8 @@ KINDS: dict[tuple[Kind, str | None], tuple[str, str, str | None]] = {
     (Kind.device, "microwave"): ("микроволновка", "IfcElectricAppliance", "MICROWAVE"),
     (Kind.device, "dishwasher"): ("посудомоечная машина", "IfcElectricAppliance", "DISHWASHER"),
     (Kind.device, "washing_machine"): ("стиральная машина", "IfcElectricAppliance", "WASHINGMACHINE"),
+    (Kind.device, "tumble_dryer"): ("сушильная машина", "IfcElectricAppliance", "TUMBLEDRYER"),
+    (Kind.device, "range_hood"): ("вытяжка", "IfcElectricAppliance", "USERDEFINED"),
     (Kind.device, None): ("устройство", "IfcElectricAppliance", "USERDEFINED"),
     (Kind.system, "heating"): ("система отопления", "IfcDistributionSystem", "HEATING"),
     (Kind.system, "electrical"): ("электрогруппа", "IfcDistributionSystem", "ELECTRICAL"),

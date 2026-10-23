@@ -112,3 +112,13 @@ def test_footprint_closes_doorways_and_keeps_corners():
     assert len(fp) == 6 and (2.0, 3.0) in fp
     area = sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(fp, fp[1:] + fp[:1])) / 2
     assert math.isclose(area, 8 * 3 + 2 * 3, abs_tol=1e-6)  # против часовой: площадь положительная
+
+
+def test_plan_label_point_stays_inside_l_shape():
+    from cherrybim.plan import _center, _edge_dist, _in_poly
+    rect = [(0, 0), (10, 0), (10, 4), (0, 4)]
+    assert _center(rect) == (5, 2)
+    ell = [(0, 0), (10, 0), (10, 2), (2, 2), (2, 10), (0, 10)]   # центр рамки (5, 5) снаружи
+    c = _center(ell)
+    assert _in_poly(c, ell) and _edge_dist(c, ell) >= 0.9
+    assert _center([(3, 4)]) == (3, 4)

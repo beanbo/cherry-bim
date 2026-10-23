@@ -101,13 +101,10 @@ def render_plan(twin: Twin, focus: str | None = None, audience: Privacy = Privac
                 d.polygon(px(p), fill=col)
 
     f_room = _font(int(26 * SS * min(1.0, s / (60 * SS) + 0.5)))
-    for e, p in rooms:                   # подписи комнат — по центру их прямоугольника
+    for e, p in rooms:                   # подписи комнат — внутри многоугольника, у Г-образных тоже
         if e.type == "lift_shaft":
             continue                     # шахту видно и так, подпись только мешает
-        q = px(p)
-        cx, cy = (min(x for x, _ in q) + max(x for x, _ in q)) / 2, (min(y for _, y in q) + max(y for _, y in q)) / 2
-        name = _label(e)
-        _text(d, (cx, cy), name, f_room, th["muted"], anchor="mm")
+        _text(d, _center(px(p)), _label(e), f_room, th["muted"], anchor="mm")
 
     if target is not None:
         poly_of = {e.id: p for e, p in shapes}
@@ -117,8 +114,7 @@ def render_plan(twin: Twin, focus: str | None = None, audience: Privacy = Privac
         acc = th["accent"]
         if carrier is not None:
             p = px(poly_of[carrier.id])
-            cx = sum(x for x, _ in p) / len(p)
-            cy = sum(y for _, y in p) / len(p)
+            cx, cy = _center(p)
             if len(p) >= 3:
                 od.polygon(p, fill=acc + (110,), outline=acc + (255,), width=4 * SS)
             r = 34 * SS
@@ -140,6 +136,46 @@ def render_plan(twin: Twin, focus: str | None = None, audience: Privacy = Privac
     buf = io.BytesIO()
     out.save(buf, "PNG", optimize=True)
     return buf.getvalue()
+
+
+def _center(p: list[tuple[float, float]]) -> tuple[float, float]:
+    """Точка для подписи и отметки внутри многоугольника. Центр рамки, если он внутри и не у края;
+    иначе (Г-образная квартира) — точка сетки 20×20, дальше всех отстоящая от краёв."""
+    if len(p) < 3:
+        return p[0]
+    xs, ys = [x for x, _ in p], [y for _, y in p]
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+    c = ((x0 + x1) / 2, (y0 + y1) / 2)
+    if _in_poly(c, p) and _edge_dist(c, p) > 0.15 * min(x1 - x0, y1 - y0):
+        return c
+    best, far = c, -1.0
+    for i in range(1, 20):
+        for j in range(1, 20):
+            q = (x0 + (x1 - x0) * i / 20, y0 + (y1 - y0) * j / 20)
+            if _in_poly(q, p):
+                dist = _edge_dist(q, p)
+                if dist > far:
+                    best, far = q, dist
+    return best
+
+
+def _in_poly(q, p) -> bool:
+    x, y = q
+    inside = False
+    for (ax, ay), (bx, by) in zip(p, p[1:] + p[:1]):
+        if (ay > y) != (by > y) and x < ax + (y - ay) * (bx - ax) / (by - ay):
+            inside = not inside
+    return inside
+
+
+def _edge_dist(q, p) -> float:
+    x, y = q
+    best = float("inf")
+    for (ax, ay), (bx, by) in zip(p, p[1:] + p[:1]):
+        dx, dy = bx - ax, by - ay
+        t = max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy or 1.0)))
+        best = min(best, ((x - ax - t * dx) ** 2 + (y - ay - t * dy) ** 2) ** 0.5)
+    return best
 
 
 def _label(e: Entity) -> str:
