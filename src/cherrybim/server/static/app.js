@@ -365,7 +365,9 @@ function makeLabels() {
       add(e, c, "unit");
     } else if (e._floor && (e.kind === "unit" || e.kind === "space") && e.kind !== "section") {
       const c = new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3());
-      add({ ...e, name: e.kind === "unit" && e.props?.number ? `кв. ${e.props.number}` : e.name }, c, "house");
+      if (e.type === "lift_shaft") continue;
+      const num = e.props?.number && e.props.number !== "?" ? e.props.number : null;
+      add({ ...e, name: e.kind === "unit" ? (num ? `кв. ${num}` : e.props?.plan || e.name) : e.name }, c, "house");
     } else if (e.kind === "section") {
       const b = new THREE.Box3().setFromObject(o);
       add(e, new THREE.Vector3((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, b.max.z + 1.5), e._myBld ? "house" : "-");

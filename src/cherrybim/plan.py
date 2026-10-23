@@ -102,9 +102,11 @@ def render_plan(twin: Twin, focus: str | None = None, audience: Privacy = Privac
 
     f_room = _font(int(26 * SS * min(1.0, s / (60 * SS) + 0.5)))
     for e, p in rooms:                   # подписи комнат — по центру их прямоугольника
+        if e.type == "lift_shaft":
+            continue                     # шахту видно и так, подпись только мешает
         q = px(p)
         cx, cy = (min(x for x, _ in q) + max(x for x, _ in q)) / 2, (min(y for _, y in q) + max(y for _, y in q)) / 2
-        name = f"кв. {e.props['number']}" if e.kind == Kind.unit and e.props.get("number") else e.name
+        name = _label(e)
         _text(d, (cx, cy), name, f_room, th["muted"], anchor="mm")
 
     if target is not None:
@@ -138,6 +140,16 @@ def render_plan(twin: Twin, focus: str | None = None, audience: Privacy = Privac
     buf = io.BytesIO()
     out.save(buf, "PNG", optimize=True)
     return buf.getvalue()
+
+
+def _label(e: Entity) -> str:
+    """«кв. 21»; без известного номера — планировка («2-комн., 60,23 м²»), а не «кв. ?»."""
+    num = str(e.props.get("number") or "")
+    if e.kind == Kind.unit and num and num != "?":
+        return f"кв. {num}"
+    if e.kind == Kind.unit and e.props.get("plan"):
+        return str(e.props["plan"]).split(" м²")[0] + (" м²" if " м²" in str(e.props["plan"]) else "")
+    return e.name
 
 
 # ── что рисовать ─────────────────────────────────────────────────────────────
