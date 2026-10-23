@@ -43,6 +43,7 @@ STATIC = Path(__file__).parent / "static"
 TOGGLE_DOMAINS = {"light", "switch", "fan"}          # что можно щёлкать из просмотрщика; замков тут нет
 DEFAULT_ALLOW = "127.0.0.1/32,::1/128,172.30.32.1/32,172.30.32.2/32"   # аддон HA: ядро и Supervisor (ingress)
 MAX_PHOTO = 12 * 2 ** 20
+REL_RU = {"finishes": "где", "serves": "обслуживает", "feeds": "питает", "controls": "управляет", "supplied_by": "от"}
 
 PHOTO_PROMPT = (
     "На фото — содержимое места хранения ({place}). Перечисли вещи, которые видны и которые хозяин может "
@@ -440,6 +441,12 @@ def _describe(st: Store, h: dict) -> str:
     props = [f"{k}: {v}" for k, v in e.props.items() if isinstance(v, (str, int, float)) and not isinstance(v, bool)
              and len(str(v)) < 160][:8]
     line = f"{e.name} ({ru}) — {h['short']}"
+    rel = {}
+    for r in e.refs:                                     # «обои — где: Офис, Спальня», «Гр.3 — обслуживает: Кухня»
+        if r.rel in REL_RU and r.to in st.twin.by_id:
+            rel.setdefault(REL_RU[r.rel], []).append(st.twin.by_id[r.to].name)
+    if rel:
+        line += ". " + "; ".join(f"{k}: {', '.join(v)}" for k, v in rel.items())
     if props:
         line += ". " + "; ".join(props)
     if e.kind in (Kind.storage, Kind.furniture):
