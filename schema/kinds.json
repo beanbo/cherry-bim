@@ -93,6 +93,21 @@
    "ifc": "IfcDoor",
    "ifc_type": "DOOR"
   },
+  "door": {
+   "ru": "дверь",
+   "ifc": "IfcDoor",
+   "ifc_type": "DOOR"
+  },
+  "balcony_door": {
+   "ru": "балконный блок",
+   "ifc": "IfcDoor",
+   "ifc_type": "DOOR"
+  },
+  "passage": {
+   "ru": "проход без двери",
+   "ifc": "IfcBuildingElementProxy",
+   "ifc_type": "USERDEFINED"
+  },
   "*": {
    "ru": "дверь, балконный блок",
    "ifc": "IfcDoor",
@@ -132,6 +147,106 @@
   },
   "kitchen_unit": {
    "ru": "кухонные шкафы",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "nightstand": {
+   "ru": "тумбочка",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "chest": {
+   "ru": "комод",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "pedestal": {
+   "ru": "тумба с ящиками",
+   "ifc": "IfcFurniture",
+   "ifc_type": "FILECABINET"
+  },
+  "tv_stand": {
+   "ru": "тумба под ТВ",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "wall_cabinet": {
+   "ru": "навесной шкаф",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "cabinet": {
+   "ru": "тумба",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "hallway_set": {
+   "ru": "прихожая",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "vanity": {
+   "ru": "тумба под раковину",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "table": {
+   "ru": "стол",
+   "ifc": "IfcFurniture",
+   "ifc_type": "TABLE"
+  },
+  "chair": {
+   "ru": "стул",
+   "ifc": "IfcFurniture",
+   "ifc_type": "CHAIR"
+  },
+  "office_chair": {
+   "ru": "кресло",
+   "ifc": "IfcFurniture",
+   "ifc_type": "CHAIR"
+  },
+  "bench": {
+   "ru": "скамья, банкетка",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "pouf": {
+   "ru": "пуф",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "panel": {
+   "ru": "декоративная панель, короб",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "curtains": {
+   "ru": "шторы",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "rug": {
+   "ru": "ковёр",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "pet_bed": {
+   "ru": "лежанка",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "pet_bowl": {
+   "ru": "миска",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "ball": {
+   "ru": "фитбол",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "scale": {
+   "ru": "весы",
    "ifc": "IfcFurniture",
    "ifc_type": "USERDEFINED"
   },
@@ -251,6 +366,11 @@
    "ifc": "IfcCableSegment",
    "ifc_type": "CABLESEGMENT"
   },
+  "cable_channel": {
+   "ru": "кабель-канал",
+   "ifc": "IfcCableCarrierSegment",
+   "ifc_type": "CABLETRUNKINGSEGMENT"
+  },
   "grille": {
    "ru": "вентрешётка",
    "ifc": "IfcAirTerminal",
@@ -285,6 +405,16 @@
    "ru": "полотенцесушитель",
    "ifc": "IfcSpaceHeater",
    "ifc_type": "USERDEFINED"
+  },
+  "water_filter": {
+   "ru": "фильтр для воды",
+   "ifc": "IfcFilter",
+   "ifc_type": "WATERFILTER"
+  },
+  "duct": {
+   "ru": "воздуховод",
+   "ifc": "IfcDuctSegment",
+   "ifc_type": "RIGIDSEGMENT"
   }
  },
  "device": {
@@ -297,6 +427,11 @@
    "ru": "лампа",
    "ifc": "IfcLightFixture",
    "ifc_type": "POINTSOURCE"
+  },
+  "backlight": {
+   "ru": "подсветка",
+   "ifc": "IfcLightFixture",
+   "ifc_type": "USERDEFINED"
   },
   "thermostat": {
    "ru": "термостат",
@@ -322,6 +457,36 @@
    "ru": "колонка",
    "ifc": "IfcAudioVisualAppliance",
    "ifc_type": "SPEAKER"
+  },
+  "monitor": {
+   "ru": "монитор",
+   "ifc": "IfcAudioVisualAppliance",
+   "ifc_type": "DISPLAY"
+  },
+  "pc": {
+   "ru": "компьютер",
+   "ifc": "IfcCommunicationsAppliance",
+   "ifc_type": "COMPUTER"
+  },
+  "printer": {
+   "ru": "принтер, МФУ",
+   "ifc": "IfcCommunicationsAppliance",
+   "ifc_type": "PRINTER"
+  },
+  "router": {
+   "ru": "роутер",
+   "ifc": "IfcCommunicationsAppliance",
+   "ifc_type": "ROUTER"
+  },
+  "ups": {
+   "ru": "ИБП",
+   "ifc": "IfcElectricFlowStorageDevice",
+   "ifc_type": "UPS"
+  },
+  "printer_3d": {
+   "ru": "3D-принтер",
+   "ifc": "IfcElectricAppliance",
+   "ifc_type": "USERDEFINED"
   },
   "sensor": {
    "ru": "датчик",
@@ -362,6 +527,16 @@
    "ru": "стиральная машина",
    "ifc": "IfcElectricAppliance",
    "ifc_type": "WASHINGMACHINE"
+  },
+  "tumble_dryer": {
+   "ru": "сушильная машина",
+   "ifc": "IfcElectricAppliance",
+   "ifc_type": "TUMBLEDRYER"
+  },
+  "range_hood": {
+   "ru": "вытяжка",
+   "ifc": "IfcElectricAppliance",
+   "ifc_type": "USERDEFINED"
   },
   "*": {
    "ru": "устройство",
@@ -438,6 +613,56 @@
  "document": {
   "*": {
    "ru": "документ",
+   "ifc": "IfcDocumentReference",
+   "ifc_type": null
+  },
+  "project": {
+   "ru": "проект, чертежи",
+   "ifc": "IfcDocumentReference",
+   "ifc_type": null
+  },
+  "assembly": {
+   "ru": "инструкция по сборке",
+   "ifc": "IfcDocumentReference",
+   "ifc_type": null
+  },
+  "manual": {
+   "ru": "инструкция",
+   "ifc": "IfcDocumentReference",
+   "ifc_type": null
+  },
+  "datasheet": {
+   "ru": "характеристики, паспорт",
+   "ifc": "IfcDocumentReference",
+   "ifc_type": null
+  },
+  "receipt": {
+   "ru": "чек, заказ",
+   "ifc": "IfcDocumentReference",
+   "ifc_type": null
+  },
+  "warranty": {
+   "ru": "гарантия",
+   "ifc": "IfcDocumentReference",
+   "ifc_type": null
+  },
+  "contract": {
+   "ru": "договор",
+   "ifc": "IfcDocumentReference",
+   "ifc_type": null
+  },
+  "page": {
+   "ru": "страница сайта",
+   "ifc": "IfcDocumentReference",
+   "ifc_type": null
+  },
+  "photo": {
+   "ru": "фото",
+   "ifc": "IfcDocumentReference",
+   "ifc_type": null
+  },
+  "note": {
+   "ru": "заметка",
    "ifc": "IfcDocumentReference",
    "ifc_type": null
   }

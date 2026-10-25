@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+from .docs import DOC_TYPES
 from .model import Kind
 
 # (kind, type) → (русское название, класс IFC4, PredefinedType)
@@ -25,6 +26,9 @@ KINDS: dict[tuple[Kind, str | None], tuple[str, str, str | None]] = {
     (Kind.slab, None): ("плита", "IfcSlab", "FLOOR"),
     (Kind.opening, "window"): ("окно", "IfcWindow", "WINDOW"),
     (Kind.opening, "entrance_door"): ("входная дверь", "IfcDoor", "DOOR"),
+    (Kind.opening, "door"): ("дверь", "IfcDoor", "DOOR"),
+    (Kind.opening, "balcony_door"): ("балконный блок", "IfcDoor", "DOOR"),
+    (Kind.opening, "passage"): ("проход без двери", "IfcBuildingElementProxy", "USERDEFINED"),
     (Kind.opening, None): ("дверь, балконный блок", "IfcDoor", "DOOR"),
     (Kind.furniture, "bed"): ("кровать", "IfcFurniture", "BED"),
     (Kind.furniture, "sofa"): ("диван", "IfcFurniture", "SOFA"),
@@ -33,6 +37,26 @@ KINDS: dict[tuple[Kind, str | None], tuple[str, str, str | None]] = {
     (Kind.furniture, "bookshelf"): ("стеллаж, книжная полка", "IfcFurniture", "SHELF"),
     (Kind.furniture, "wardrobe"): ("шкаф", "IfcFurniture", "USERDEFINED"),
     (Kind.furniture, "kitchen_unit"): ("кухонные шкафы", "IfcFurniture", "USERDEFINED"),
+    (Kind.furniture, "nightstand"): ("тумбочка", "IfcFurniture", "USERDEFINED"),
+    (Kind.furniture, "chest"): ("комод", "IfcFurniture", "USERDEFINED"),
+    (Kind.furniture, "pedestal"): ("тумба с ящиками", "IfcFurniture", "FILECABINET"),
+    (Kind.furniture, "tv_stand"): ("тумба под ТВ", "IfcFurniture", "USERDEFINED"),
+    (Kind.furniture, "wall_cabinet"): ("навесной шкаф", "IfcFurniture", "USERDEFINED"),
+    (Kind.furniture, "cabinet"): ("тумба", "IfcFurniture", "USERDEFINED"),
+    (Kind.furniture, "hallway_set"): ("прихожая", "IfcFurniture", "USERDEFINED"),
+    (Kind.furniture, "vanity"): ("тумба под раковину", "IfcFurniture", "USERDEFINED"),
+    (Kind.furniture, "table"): ("стол", "IfcFurniture", "TABLE"),
+    (Kind.furniture, "chair"): ("стул", "IfcFurniture", "CHAIR"),
+    (Kind.furniture, "office_chair"): ("кресло", "IfcFurniture", "CHAIR"),
+    (Kind.furniture, "bench"): ("скамья, банкетка", "IfcFurniture", "USERDEFINED"),
+    (Kind.furniture, "pouf"): ("пуф", "IfcFurniture", "USERDEFINED"),
+    (Kind.furniture, "panel"): ("декоративная панель, короб", "IfcFurniture", "USERDEFINED"),
+    (Kind.furniture, "curtains"): ("шторы", "IfcFurniture", "USERDEFINED"),
+    (Kind.furniture, "rug"): ("ковёр", "IfcFurniture", "USERDEFINED"),
+    (Kind.furniture, "pet_bed"): ("лежанка", "IfcFurniture", "USERDEFINED"),
+    (Kind.furniture, "pet_bowl"): ("миска", "IfcFurniture", "USERDEFINED"),
+    (Kind.furniture, "ball"): ("фитбол", "IfcFurniture", "USERDEFINED"),
+    (Kind.furniture, "scale"): ("весы", "IfcFurniture", "USERDEFINED"),
     (Kind.furniture, None): ("мебель", "IfcFurniture", "USERDEFINED"),
     (Kind.storage, "section"): ("секция шкафа", "IfcFurniture", "USERDEFINED"),
     (Kind.storage, "drawer"): ("ящик", "IfcFurniture", "USERDEFINED"),
@@ -54,6 +78,7 @@ KINDS: dict[tuple[Kind, str | None], tuple[str, str, str | None]] = {
     (Kind.mep, "distribution_board"): ("щиток", "IfcElectricDistributionBoard", "DISTRIBUTIONBOARD"),
     (Kind.mep, "breaker"): ("автомат, АВДТ", "IfcProtectiveDevice", "CIRCUITBREAKER"),
     (Kind.mep, "cable"): ("кабель", "IfcCableSegment", "CABLESEGMENT"),
+    (Kind.mep, "cable_channel"): ("кабель-канал", "IfcCableCarrierSegment", "CABLETRUNKINGSEGMENT"),
     (Kind.mep, "grille"): ("вентрешётка", "IfcAirTerminal", "GRILLE"),
     (Kind.mep, "bath"): ("ванна", "IfcSanitaryTerminal", "BATH"),
     (Kind.mep, "washbasin"): ("раковина", "IfcSanitaryTerminal", "WASHHANDBASIN"),
@@ -65,11 +90,19 @@ KINDS: dict[tuple[Kind, str | None], tuple[str, str, str | None]] = {
     (Kind.furniture, "mirror"): ("зеркало", "IfcFurniture", "USERDEFINED"),
     (Kind.device, "light"): ("свет", "IfcLightFixture", "POINTSOURCE"),
     (Kind.device, "lamp"): ("лампа", "IfcLightFixture", "POINTSOURCE"),
+    (Kind.device, "backlight"): ("подсветка", "IfcLightFixture", "USERDEFINED"),
+    (Kind.mep, "duct"): ("воздуховод", "IfcDuctSegment", "RIGIDSEGMENT"),
     (Kind.device, "thermostat"): ("термостат", "IfcUnitaryControlElement", "THERMOSTAT"),
     (Kind.device, "ac"): ("кондиционер", "IfcUnitaryEquipment", "SPLITSYSTEM"),
     (Kind.device, "breezer"): ("бризер", "IfcUnitaryEquipment", "USERDEFINED"),
     (Kind.device, "tv"): ("телевизор", "IfcAudioVisualAppliance", "TV"),
     (Kind.device, "speaker"): ("колонка", "IfcAudioVisualAppliance", "SPEAKER"),
+    (Kind.device, "monitor"): ("монитор", "IfcAudioVisualAppliance", "DISPLAY"),
+    (Kind.device, "pc"): ("компьютер", "IfcCommunicationsAppliance", "COMPUTER"),
+    (Kind.device, "printer"): ("принтер, МФУ", "IfcCommunicationsAppliance", "PRINTER"),
+    (Kind.device, "router"): ("роутер", "IfcCommunicationsAppliance", "ROUTER"),
+    (Kind.device, "ups"): ("ИБП", "IfcElectricFlowStorageDevice", "UPS"),
+    (Kind.device, "printer_3d"): ("3D-принтер", "IfcElectricAppliance", "USERDEFINED"),
     (Kind.device, "sensor"): ("датчик", "IfcSensor", "USERDEFINED"),
     (Kind.device, "vacuum"): ("робот-пылесос", "IfcElectricAppliance", "USERDEFINED"),
     (Kind.device, "fridge"): ("холодильник", "IfcElectricAppliance", "FRIDGE_FREEZER"),
@@ -94,6 +127,7 @@ KINDS: dict[tuple[Kind, str | None], tuple[str, str, str | None]] = {
     (Kind.feature, None): ("объект на участке", "IfcBuildingElementProxy", "USERDEFINED"),
     (Kind.finish, None): ("отделка", "IfcCovering", "CLADDING"),
     (Kind.document, None): ("документ", "IfcDocumentReference", None),
+    **{(Kind.document, t): (ru, "IfcDocumentReference", None) for t, ru in DOC_TYPES.items()},
 }
 
 

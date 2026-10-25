@@ -1,7 +1,17 @@
-// Cherry BiM — просмотрщик двойника: low poly, только цвета. Данные — /api/twin, живые состояния — /api/live.
-// Все адреса относительные: страница работает и сама по себе, и под ingress Home Assistant.
+// Cherry BiM — просмотрщик двойника: реалистичная геометрия без текстур, свет, мягкие тени и затенение углов.
+// Модели по типам — families.js, детали — kit.js, материалы — materials.js. Данные — /api/twin, живые состояния —
+// /api/live. Все адреса относительные: страница работает и сама по себе, и под ingress Home Assistant.
 import * as THREE from "three";
 import { OrbitControls } from "./vendor/OrbitControls.js";
+import { EffectComposer } from "./vendor/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "./vendor/jsm/postprocessing/RenderPass.js";
+import { GTAOPass } from "./vendor/jsm/postprocessing/GTAOPass.js";
+import { OutputPass } from "./vendor/jsm/postprocessing/OutputPass.js";
+import { RoomEnvironment } from "./vendor/jsm/environments/RoomEnvironment.js";
+import { buildFamily } from "./families.js";
+import { fixture } from "./furnishings.js";
+import { Kit } from "./kit.js";
+import { M, pbr, hex } from "./materials.js";
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);                  // как в модели: Z вверх, метры
 
@@ -19,19 +29,17 @@ const send = (path, body, method = "POST") => api(path, { method, body: JSON.str
 
 // ── цвета ───────────────────────────────────────────────────────────────────
 const COL = {
-  wallExt: 0xeeeae3, wallInt: 0xfaf8f4, glass: 0x9fd3ef, door: 0xffffff, entrance: 0xb3362f,
-  building: 0xe3dccf, ghost: 0xb9c4cf, unitAccent: 0xe4572e,
+  building: 0xe6e0d4, roof: 0xa9a59d, ghost: 0xb9c4cf, unitAccent: 0xe4572e,
   heat: 0xe4572e, water: 0x2e86de, cable: 0xf2a23a, socket: 0x5d6d7e, vent: 0x95a5a6, mep: 0x8e44ad,
-  devOff: 0xb7bec6, lightOn: 0xffc928, heatOn: 0xff8a3d, coolOn: 0x4fc3f7, mediaOn: 0x8e6bd8, vacuum: 0x37474f, vacOn: 0x2fa86a,
-  sel: 0xff7a45, rel: 0x3f9cff,
+  devOff: 0xf4f4f2, lightOn: 0xffc928, heatOn: 0xff8a3d, coolOn: 0x4fc3f7, mediaOn: 0x8e6bd8, vacuum: 0x37474f, vacOn: 0x2fa86a,
+  badge: 0xb7bec6, sel: 0xff7a45, rel: 0x3f9cff,
 };
 const FURN = { bed: 0xcdb79e, sofa: 0x9fb3c8, desk: 0xbf9f78, dining_table: 0xbf9f78, bookshelf: 0xb08d62,
   nightstand: 0xc9b08d, wardrobe: 0xd8cdbd, vanity: 0xf2f2f2, pet_bowl: 0x5d8aa8, mirror: 0xcfe3ee };
-const FEATURE = [["playground", 0xf2c14e], ["parking", 0xa8b0b8], ["gazebo", 0xb7895a], ["shelter", 0xb7895a],
-  ["pitch", 0x7fb069], ["sport", 0x7fb069], ["grass", 0xa5d17a], ["garden", 0xa5d17a], ["park", 0xa5d17a]];
+const FEATURE = [["playground", 0xd9c79c], ["parking", 0x9aa0a6], ["gazebo", 0xb7895a], ["shelter", 0xb7895a],
+  ["pitch", 0x7fae68], ["sport", 0x7fae68], ["grass", 0x9cc77a], ["garden", 0x9cc77a], ["park", 0x9cc77a]];
 const NEIGHBOUR = [0xc9d4e3, 0xd8cde3, 0xcfe0d2, 0xe6d5c3, 0xe3cdd2, 0xd2dde6];
-const ROOM = [0xf3e6d3, 0xe0ecdc, 0xdce7f2, 0xf2dfe3, 0xe8e1f2, 0xefeccf, 0xd9ecec, 0xf0e2d0, 0xe2e9d4, 0xe6dcef];
-const DEV_H = { light: -0.06, lamp: 0.9, ac: 2.2, tv: 1.1, speaker: 0.95, breezer: 1.6 };   // light — от потолка
+const DEV_H = { light: 0, lamp: 0.9, ac: 2.2, tv: 1.1, speaker: 0.95, breezer: 1.6 };   // light — у потолка
 const VAC = { docked: "на базе", cleaning: "убирает", returning: "едет на базу", idle: "стоит", paused: "пауза", error: "ошибка" };
 const PLACE_KINDS = new Set(["storage", "furniture", "space", "unit", "item"]);
 const TOGGLE = new Set(["light", "switch", "fan"]);
@@ -46,12 +54,32 @@ const PROP = { number: "номер", area_brti: "площадь по БРТИ, �
   floors: "этажей", flats: "квартир", project: "проект", material: "материал", color: "цвет", stack: "стояк квартир",
   outlet_heights_mm: "высоты розеток, мм", codes: "коды", parts: "состав", node: "узел", level: "уровень",
   width: "ширина, м", depth: "глубина, м", height: "высота, м", wiring_changed: "разводку меняли",
-  wiring_source: "разводка по", origin: "откуда" };
+  wiring_source: "разводка по", origin: "откуда", brand: "марка", model: "модель", look: "как выглядит", size: "размер",
+  where: "где", history: "история", mount: "крепление", light: "свет", feed: "подводка", wall: "стена", lid: "крышка",
+  faucet: "смеситель", duct: "воздуховод", fronts: "фасады", countertop: "столешница", backsplash: "фартук",
+  fittings: "фурнитура", carcass: "корпус", design: "проект", inside: "внутри", lock: "замок", frame: "рама",
+  sill: "подоконник", outside: "снаружи", box: "упаковка", heating_hatch: "люк отопления", access: "доступ",
+  riser: "стояк", out: "выход", risers: "стояки", group: "группа", cable_project: "кабель по проекту", panel: "щиток",
+  rooms_note: "комнаты", seen_on_line: "на линии", trips_2024: "отключения 2024", group_note: "группа",
+  places: "мест", keys: "клавиш", height_m: "высота, м", as_built: "как сделано", copy_of: "копия страницы",
+  kitchen_project: "проект кухни", outlets_by_kitchen_project: "розетки по проекту", electrics_bought_2024_08_16: "куплено 16.08.2024",
+  mattress: "матрас", bed: "кровать", table: "стол", chairs: "стулья", surface: "поверхность", clear_height: "до потолка, м",
+  slab_height: "до плиты, м" };
+const HIDDEN_PROPS = new Set(["render", "ids"]);          // подсказки для отрисовки — не для карточки; номера — отдельно
+const DOC_PROPS = new Set(["url", "file", "mime", "size", "sha256", "saved_at", "pages", "copy_of"]);   // у документа — своим блоком
+const FMT = { "application/pdf": "PDF", "text/html": "страница", "image/jpeg": "фото", "image/png": "картинка", "image/webp": "картинка" };
+const HIDDEN_MEP = new Set(["cable", "pipe_pair", "water_riser", "duct"]);   // в стенах и стяжке: видны в режиме «Инженерия»
+const CUT = 1.15;                                         // срез стен над полом квартиры, м
+const QS = new URLSearchParams(location.search);          // ?ao=0 — без затенения углов, ?shadows=0 — без теней, ?msaa=0
 
 // ── сцена ───────────────────────────────────────────────────────────────────
 const canvas = $("#c");
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, powerPreference: "high-performance" });
+renderer.setClearColor(0x000000, 0);                     // фон — цвет темы под холстом (CSS), тонмаппинг его не трогает
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = QS.get("shadows") !== "0";
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.NeutralToneMapping;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(40, 1, 0.03, 5000);
 camera.position.set(-12, -18, 22);
@@ -60,38 +88,78 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.12;
 controls.maxPolarAngle = Math.PI * 0.495;
 controls.screenSpacePanning = true;
-scene.add(new THREE.HemisphereLight(0xffffff, 0x8f9aa6, 2.3));
-const sun = new THREE.DirectionalLight(0xffffff, 1.5);
-sun.position.set(-40, -70, 100);
-scene.add(sun);
+
+// свет: мягкое окружение (без картинок — комната из примитивов three.js), небо и солнце с тенями
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.55;
+const hemi = new THREE.HemisphereLight(0xffffff, 0xd9d5ce, 0.55);
+const sun = new THREE.DirectionalLight(0xfffaf3, 2.1);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.bias = -0.0003;
+sun.shadow.normalBias = 0.012;
 const world = new THREE.Group();
 const helpers = new THREE.Group();
-scene.add(world, helpers);
+const backdrop = new THREE.Group();                       // земля под кварталом
+const ceilings = new THREE.Group();                       // потолки комнат: только в виде квартиры без среза
+scene.add(hemi, sun, sun.target, world, helpers, backdrop, ceilings);
 
-function themeColors() {
-  const css = getComputedStyle(document.documentElement);
-  scene.background = new THREE.Color(css.getPropertyValue("--scene").trim() || "#e9edf1");
+// кадр: сцена в буфер со сглаживанием, затенение углов (GTAO), тонмаппинг и sRGB
+// ?msaa=0 — без сглаживания в буфере: программный WebGL (SwiftShader) пропускает в MSAA-буфере кромки закрытых вещей
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(2, 2, { samples: QS.get("msaa") === "0" ? 0 : 4, type: THREE.HalfFloatType }));
+composer.addPass(new RenderPass(scene, camera));
+const gtao = new GTAOPass(scene, camera, 2, 2);
+gtao.updateGtaoMaterial({ radius: 0.32, distanceExponent: 1.4, thickness: 1.2, scale: 1.0, samples: 12 });
+gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 5, rings: 2, samples: 12 });
+gtao.blendIntensity = 0.65;                               // сильнее — шумит точками на тонких кромках
+gtao.enabled = QS.get("ao") !== "0";
+gtao.overrideVisibility = function () {                   // стекло, «призраки», рентген и места щелчка не затеняют
+  const cache = this._visibilityCache;
+  this.scene.traverse(o => {
+    cache.set(o, o.visible);
+    const m = o.material;
+    if (o.isPoints || o.isLine || o.isLineSegments || (o.isMesh && !Array.isArray(m) && (m.transparent || !m.visible))) o.visible = false;
+  });
+};
+composer.addPass(gtao);
+// холст прозрачный, цвета в буфере умножены на альфу: перед тонмаппингом и sRGB умножение снимаем, потом
+// возвращаем — иначе полупрозрачное (стекло, «призраки») поверх фона светлеет ореолом
+const output = new OutputPass();
+const fs = output.material.fragmentShader;
+if (fs.includes("gl_FragColor = texture2D( tDiffuse, vUv );")) {
+  output.material.fragmentShader = fs
+    .replace("gl_FragColor = texture2D( tDiffuse, vUv );",
+      "gl_FragColor = texture2D( tDiffuse, vUv ); float pa = gl_FragColor.a; if ( pa > 0.0001 ) gl_FragColor.rgb /= pa;")
+    .replace(/\}\s*$/, "gl_FragColor.rgb *= pa; }");
 }
-themeColors();
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", themeColors);
+composer.addPass(output);
+
+let dirty = true;
+const invalidate = () => { dirty = true; };
+controls.addEventListener("change", invalidate);
+
 
 function resize() {
   const w = canvas.clientWidth, h = canvas.clientHeight;
   if (!w || !h) return;
   renderer.setSize(w, h, false);
+  composer.setPixelRatio(renderer.getPixelRatio());
+  composer.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  invalidate();
 }
 new ResizeObserver(resize).observe(canvas);
 
 // ── состояние ───────────────────────────────────────────────────────────────
 const S = {
   data: null, ver: -1, by: new Map(), kids: new Map(), refsIn: new Map(), obj: new Map(), labels: [],
-  unit: null, view: "unit", cut: true, mep: true, sel: null, states: {}, ha: {}, features: {},
+  unit: null, view: "unit", cut: true, mep: false, sel: null, states: {}, ha: {}, features: {},
   floorHit: null, puck: null, devices: [], fitted: false,
 };
 
-window.cherrybim = { S, scene, camera, controls };        // для отладки из консоли
+window.cherrybim = { S, scene, camera, controls, invalidate, gtao, sun, renderer, composer };   // для отладки из консоли
 
 function ancestors(id) {
   const out = [];
@@ -129,26 +197,90 @@ function index(data) {
     e._bld = (e.kind === "building" ? e : chain.find(a => a.kind === "building"))?.id;
     e._myBld = !!bld && e._bld === bld.id;
     e._floor = !!best && !e._inUnit && chain.some(a => a.id === best.parent);   // на том же этаже, что и квартира
+    e._unit = e.kind === "unit" ? e : chain.find(a => a.kind === "unit") || null;
   }
 }
 
-// ── геометрия ───────────────────────────────────────────────────────────────
-const mats = new Map();
-function mat(color, opt = {}) {
-  const key = color + "|" + JSON.stringify(opt);
-  if (!mats.has(key)) mats.set(key, new THREE.MeshLambertMaterial({ color, flatShading: true, ...opt }));
-  return mats.get(key);
+// ── окружение для моделей: соседи, системы координат, контур квартиры ───────
+const mat4 = e => e._M || (e._M = new THREE.Matrix4().set(...e.m.flat()));
+function floorWorldZ(e) {
+  const u = e._unit;
+  if (u) return mat4(u).elements[14] + (u.geom?.z0 || 0);
+  const st = e.kind === "storey" ? e : ancestors(e.id).find(a => a.kind === "storey");
+  return st ? mat4(st).elements[14] : 0;
 }
+function inPoly(poly, x, y) {
+  let ins = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) ins = !ins;
+  }
+  return ins;
+}
+const famEnv = {
+  by: id => S.by.get(id),
+  kids: id => S.kids.get(id) || [],
+  get ceil() { return S.unit?.props?.ceiling || 2.55; },
+  cutAt: CUT,
+  floor: e => { const p = S.by.get(e.parent); return p?.kind === "space" ? floorMat(p) : null; },   // пол комнаты (в проёме двери)
+  floorZ: e => mat4(e).elements[14] - floorWorldZ(e),
+  rel: (a, b) => mat4(a).clone().invert().multiply(mat4(b)),
+  own: e => ownMat(e ? offColor(e) : COL.devOff),
+  // точка в системе сущности лежит вне контура её квартиры (снаружи дома или на лестнице)
+  outside(e, p) {
+    const u = e._unit;
+    if (!u?.geom?.outline) return false;
+    const w = new THREE.Vector3(...p).applyMatrix4(mat4(e)).applyMatrix4(mat4(u).clone().invert());
+    return !inPoly(u.geom.outline, w.x, w.y);
+  },
+  // коробки сущностей этих видов (kind.type), стоящих в пределах коробки e, — в системе e
+  within(e, types) {
+    const [W, D, H] = e.geom.size, inv = mat4(e).clone().invert(), out = [];
+    for (const o of S.data.entities) {
+      if (o === e || o.geom?.type !== "box" || !types.includes(`${o.kind}.${o.type}`) || o._unit !== e._unit) continue;
+      const [sx, sy, sz] = o.geom.size, m = inv.clone().multiply(mat4(o)), b = new THREE.Box3();
+      for (const x of [0, sx]) for (const y of [0, sy]) for (const z of [0, sz]) b.expandByPoint(new THREE.Vector3(x, y, z).applyMatrix4(m));
+      const cx = (b.min.x + b.max.x) / 2, cy = (b.min.y + b.max.y) / 2;
+      if (cx < 0 || cx > W || cy < -0.1 || cy > D + 0.1 || b.max.z < -0.05 || b.min.z > H + 0.05) continue;
+      out.push({ x0: b.min.x, y0: b.min.y, z0: b.min.z, x1: b.max.x, y1: b.max.y, z1: b.max.z });
+    }
+    return out;
+  },
+};
+
+// ── материалы просмотрщика ──────────────────────────────────────────────────
 function ownMat(color) {                                  // у устройства свой материал: его красит состояние
-  const m = new THREE.MeshLambertMaterial({ color, flatShading: true });
+  const m = new THREE.MeshStandardMaterial({ color, roughness: 0.4 });
   m.userData.own = true;
   return m;
 }
-const GHOST = mat(COL.ghost, { transparent: true, opacity: 0.16, depthWrite: false });
-GHOST.userData.ghost = true;
-const GHOST2 = mat(COL.building, { transparent: true, opacity: 0.4, depthWrite: false });
-GHOST2.userData.ghost = true;
-const ACCENT = mat(COL.unitAccent);
+function ghostMat(color, opacity) {
+  const m = new THREE.MeshStandardMaterial({ color, roughness: 0.8, transparent: true, opacity, depthWrite: false });
+  m.userData.ghost = true;
+  return m;
+}
+const GHOST = ghostMat(COL.ghost, 0.16);
+const GHOST2 = ghostMat(COL.building, 0.4);
+const ACCENT = pbr(COL.unitAccent, { rough: 0.7 });
+const PICK = new THREE.MeshBasicMaterial({ visible: false });   // невидимый объём для щелчка по месту хранения
+PICK.userData.pick = true;
+const ghosts = new Map();
+function ghostOf(m) {                                     // полупрозрачная копия: «рентген» шкафа при выборе ящика
+  if (!ghosts.has(m)) {
+    const g = m.clone();
+    Object.assign(g, { transparent: true, opacity: 0.16, depthWrite: false });
+    g.userData = { ghost: true };
+    ghosts.set(m, g);
+  }
+  return ghosts.get(m);
+}
+const xrays = new Map();
+function xrayOf(color) {                                  // то, что спрятано в стене или стяжке, видно сквозь неё
+  if (!xrays.has(color)) {
+    xrays.set(color, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.32, depthFunc: THREE.GreaterDepth, depthWrite: false }));
+  }
+  return xrays.get(color);
+}
 
 function shapeOf(g) {
   const s = new THREE.Shape(g.outline.map(([x, y]) => new THREE.Vector2(x, y)));
@@ -167,15 +299,23 @@ function familyColor(e) {
   return COL.mep;
 }
 
-function boxColor(e) {
-  const t = e.type || "";
-  if (e.kind === "opening") return t === "entrance_door" ? COL.entrance : t.includes("door") && !t.includes("balcony") ? COL.door : COL.glass;
-  if (e.kind === "furniture") return FURN[t] ?? 0xc8ad86;
-  if (e.kind === "storage") return t === "drawer" ? 0xf1e9dc : t === "hanging" ? 0xe9e4f2 : 0xe6dccb;
-  if (e.kind === "mep") return t === "bath" ? 0xf5f7f8 : familyColor(e);
-  return 0xcccccc;
+// пол комнаты — по отделке: ламинат, плитка; у лоджии и общих зон — свои
+function floorMat(e) {
+  if (e.type === "loggia") return M.loggia;
+  if (e.type === "lift_shaft") return pbr(0x8f9aa6, { rough: 0.9 });
+  if (e.type === "common") return pbr(0xd6d9dc, { rough: 0.7 });
+  for (const r of S.refsIn.get(e.id) || []) {
+    if (r.rel !== "finishes") continue;
+    const f = S.by.get(r.from), on = f?.props?.render?.on;
+    if (!f || !(Array.isArray(on) ? on.includes("floor") : f.type === "floor")) continue;
+    const c = hex(f.props.render?.colors?.["*"], null);
+    if (c != null) return pbr(c, { rough: f.props.render?.gloss ? 0.22 : 0.55 });
+    return f.type?.startsWith("tile") ? M.tile : M.laminate;
+  }
+  return M.laminate;
 }
 
+// ── геометрия ───────────────────────────────────────────────────────────────
 function marker(e) {
   const t = e.type || "";
   let r = 0.06, color = familyColor(e);
@@ -185,81 +325,232 @@ function marker(e) {
   else if (["radiator", "heating_manifold", "towel_warmer", "water_riser", "washbasin", "toilet"].includes(t)) r = 0.1;
   else if (t === "vent_shaft") r = 0.13;
   else if (e.kind === "furniture") { r = 0.08; color = FURN[t] ?? 0xcfe3ee; }
-  const geo = new THREE.IcosahedronGeometry(r, 0);
+  const geo = new THREE.SphereGeometry(r, 16, 10);
   if (e.kind === "device") geo.translate(0, 0, 0.16);       // термостат на радиаторе — чуть выше
-  return new THREE.Mesh(geo, e.kind === "device" ? ownMat(color) : mat(color));
+  const m = new THREE.Mesh(geo, e.kind === "device" ? ownMat(color) : pbr(color, { rough: 0.5 }));
+  m.castShadow = true;
+  return m;
 }
 
-function pipe(points, r, color) {
-  const grp = new THREE.Group(), m = mat(color), up = new THREE.Vector3(0, 1, 0);
-  for (let i = 0; i + 1 < points.length; i++) {
-    const a = new THREE.Vector3(...points[i]), b = new THREE.Vector3(...points[i + 1]);
-    const d = b.clone().sub(a), len = d.length();
-    if (len < 1e-4) continue;
-    const geo = new THREE.CylinderGeometry(r, r, len, 6, 1);
-    geo.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(up, d.normalize()));
-    geo.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
-    grp.add(new THREE.Mesh(geo, m));
-    if (i > 0) {
-      const j = new THREE.Mesh(new THREE.IcosahedronGeometry(r * 1.25, 0), m);
-      j.position.copy(a);
-      grp.add(j);
+// трасса: кабель или пара труб (подача и обратка рядом); спрятанное в стене видно на «рентгене»
+function lineObject(e) {
+  const g = e.geom, kit = new Kit(), t = e.type || "";
+  const r = Math.max((g.diameter || 0.012) / 2, 0.006);
+  if (t === "pipe_pair") {
+    const pts = g.points.map(p => new THREE.Vector3(...p));
+    for (const [s, m] of [[-1, M.heat], [1, M.cold]]) {
+      const off = pts.map((p, i) => {
+        const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+        const d = b.clone().sub(a).setZ(0).normalize();
+        return p.clone().add(new THREE.Vector3(-d.y, d.x, 0).multiplyScalar(s * (r + 0.012))).toArray();
+      });
+      kit.tube(m, off, r, 10);
     }
+  } else kit.tube(pbr(familyColor(e), { rough: 0.5 }), g.points, r, 10);
+  return kit.build();
+}
+
+function boxFallback(e) {
+  const [x, y, z] = e.geom.size;
+  const geo = new THREE.BoxGeometry(x, y, z);
+  geo.translate(x / 2, y / 2, z / 2);
+  const color = e.kind === "furniture" ? FURN[e.type] ?? 0xc8ad86 : e.kind === "mep" ? familyColor(e) : 0xcccccc;
+  const m = new THREE.Mesh(geo, pbr(color, { rough: 0.7 }));
+  m.castShadow = m.receiveShadow = true;
+  return m;
+}
+
+function extrusionObject(e, nextRoomColor) {
+  const g = e.geom, k = e.kind, t = e.type || "";
+  const shape = shapeOf(g);
+  if (k === "unit") {                                     // квартира — плита перекрытия под полом
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.12, bevelEnabled: false });
+    geo.translate(0, 0, (g.z0 || 0) - 0.12);
+    const n = parseInt(e.props?.number, 10);              // соседи по этажу — каждая своим цветом
+    const m = new THREE.Mesh(geo, e === S.unit ? M.slab : pbr(NEIGHBOUR[(isNaN(n) ? 0 : n) % NEIGHBOUR.length], { rough: 0.85 }));
+    m.receiveShadow = true;
+    Object.assign(m.userData, { floor: true, shape, h: g.height || 2.5 });
+    return m;
   }
-  return grp;
+  if (k === "space") {                                    // комната — пол; объём рисуется только при выделении
+    const geo = new THREE.ShapeGeometry(shape);
+    geo.translate(0, 0, (g.z0 || 0) + 0.004);
+    const mat = e._inUnit || e.type !== "room" ? floorMat(e) : pbr(nextRoomColor(), { rough: 0.85 });
+    const m = new THREE.Mesh(geo, mat);
+    m.receiveShadow = true;
+    Object.assign(m.userData, { floor: true, shape, h: g.height || 2.5 });
+    return m;
+  }
+  const h = g.height > 0 ? g.height : 0.02;
+  if (k === "building" || k === "section") return Object.assign(buildingObject(e, g, h), { userData: { h, shape } });
+  if (k === "feature" && t === "gazebo") return Object.assign(gazeboObject(g), { userData: { h, shape } });
+  const own = k === "wall" && e._inUnit && S.unit && !(g.holes || []).length;
+  const geo = own ? wallGeometry(e, g, h) : new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false });
+  if (!own) geo.translate(0, 0, g.z0 || 0);
+  let mat;
+  if (k === "wall") mat = [M.cutTop, M.paint];             // верх стены — цвет среза, как на разрезе
+  else if (k === "feature") mat = pbr(familyColor(e), { rough: 0.95 });
+  else mat = pbr(0xd0d0d0, { rough: 0.8 });
+  const m = new THREE.Mesh(geo, mat);
+  m.castShadow = k !== "feature";
+  m.receiveShadow = true;
+  Object.assign(m.userData, { h, shape });
+  return m;
+}
+
+// Стена квартиры без внутренних торцов: грань, которая упирается в соседнюю стену или в коробку двери, не строится.
+// Иначе её ребро лежит в плоскости лицевой грани соседа, бьётся с ней по глубине и рисует на стене светлый пунктир.
+let NB = null;                                            // соседи в системе квартиры: контуры стен и коробки дверей
+function neighbours() {
+  if (NB) return NB;
+  const inv = mat4(S.unit).clone().invert();
+  NB = [];
+  for (const o of S.data.entities) {
+    if (!o._inUnit) continue;
+    const box = o.kind === "opening" && ["door", "entrance_door"].includes(o.type) && o.geom?.type === "box";
+    const pts = o.kind === "wall" && o.geom?.outline ? o.geom.outline : box ? [[0, 0], [o.geom.size[0], 0], [o.geom.size[0], o.geom.size[1]], [0, o.geom.size[1]]] : null;
+    if (!pts) continue;
+    const m = inv.clone().multiply(mat4(o));
+    NB.push({ id: o.id, poly: pts.map(([x, y]) => { const v = new THREE.Vector3(x, y, 0).applyMatrix4(m); return [v.x, v.y]; }) });
+  }
+  return NB;
+}
+function wallGeometry(e, g, h) {
+  const out = ccw(g.outline), z0 = g.z0 || 0, z1 = z0 + h, U = mat4(S.unit).clone().invert().multiply(mat4(e));
+  const nb = neighbours().filter(n => n.id !== e.id);
+  const pos = [], idx = [];
+  const contour = out.map(([x, y]) => new THREE.Vector2(x, y)), tris = THREE.ShapeUtils.triangulateShape(contour, []);
+  for (const [z, down] of [[z0, true], [z1, false]]) {     // низ и верх (верх — цвет среза)
+    const b = pos.length / 3;
+    for (const p of contour) pos.push(p.x, p.y, z);
+    for (const [i, j, k] of tris) idx.push(...(down ? [b + i, b + k, b + j] : [b + i, b + j, b + k]));
+  }
+  const caps = idx.length;
+  for (let i = 0; i < out.length; i++) {
+    const a = new THREE.Vector2(...out[i]), c = new THREE.Vector2(...out[(i + 1) % out.length]), len = a.distanceTo(c);
+    if (len < 1e-4) continue;
+    const d = c.clone().sub(a).divideScalar(len), n = new THREE.Vector2(d.y, -d.x);   // наружу (контур против часовой)
+    const open = s => {                                    // грань в точке s видна: за ней нет соседа
+      const p = a.clone().addScaledVector(d, s).addScaledVector(n, 0.004), v = new THREE.Vector3(p.x, p.y, 0).applyMatrix4(U);
+      return !nb.some(q => inPoly(q.poly, v.x, v.y));
+    };
+    const side = (s0, s1) => {
+      if (s1 - s0 < 1e-4) return;
+      const p = a.clone().addScaledVector(d, s0), q = a.clone().addScaledVector(d, s1), b = pos.length / 3;
+      pos.push(p.x, p.y, z0, q.x, q.y, z0, q.x, q.y, z1, p.x, p.y, z1);
+      idx.push(b, b + 1, b + 2, b, b + 2, b + 3);
+    };
+    const edge = (s0, s1) => {
+      const v0 = open(s0);
+      for (let k = 0; k < 12; k++) { const m = (s0 + s1) / 2; if (open(m) === v0) s0 = m; else s1 = m; }
+      return (s0 + s1) / 2;
+    };
+    const step = Math.min(0.02, len / 2);
+    let prev = null, ps = 0, start = null;
+    for (let s = step / 2; s < len; s += step) {
+      const v = open(s);
+      if (prev === null) { if (v) start = 0; }
+      else if (v !== prev) { const at = edge(ps, s); if (v) start = at; else { side(start, at); start = null; } }
+      prev = v; ps = s;
+    }
+    if (start !== null) side(start, len);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  geo.addGroup(0, caps, 0);
+  geo.addGroup(caps, idx.length - caps, 1);
+  return geo;
+}
+
+// контур против часовой (внутри — слева от ребра)
+function ccw(outline) {
+  let a = 0;
+  for (let i = 0; i < outline.length; i++) { const [x0, y0] = outline[i], [x1, y1] = outline[(i + 1) % outline.length]; a += x0 * y1 - x1 * y0; }
+  return a < 0 ? [...outline].reverse() : outline;
+}
+// обход рёбер контура в системе ребра: x — вдоль ребра, +y — внутрь
+function alongEdges(kit, outline, z0, fn) {
+  for (let i = 0; i < outline.length; i++) {
+    const a = new THREE.Vector2(...outline[i]), b = new THREE.Vector2(...outline[(i + 1) % outline.length]), len = a.distanceTo(b);
+    if (len < 0.05) continue;
+    const m = new THREE.Matrix4().makeTranslation(a.x, a.y, z0).multiply(new THREE.Matrix4().makeRotationZ(Math.atan2(b.y - a.y, b.x - a.x)));
+    kit.at(m, () => fn(len));
+  }
+}
+
+// дом и подъезд: стены, кровля, цоколь и парапет; у подъезда с известными этажами — межэтажные пояса.
+// Окон нет: где они, данные не знают, а выдумывать их — выдавать схему за точное.
+function buildingObject(e, g, h) {
+  const kit = new Kit(), z0 = g.z0 || 0, pts = ccw(g.outline);
+  const facade = pbr(COL.building, { rough: 0.9 }), roof = pbr(COL.roof, { rough: 0.9 });
+  const plinth = pbr(0xaea79c, { rough: 0.9 }), band = pbr(0xd6cfc2, { rough: 0.85 });
+  kit.prism(facade, pts, z0, z0 + h, g.holes || []);
+  kit.prism(roof, pts, z0 + h - 0.01, z0 + h + 0.01);
+  const levels = e.kind === "section" ? (S.kids.get(e.id) || []).filter(s => s.kind === "storey" && (s.placement?.pos?.[2] || 0) > 0.5).map(s => s.placement.pos[2]) : [];
+  alongEdges(kit, pts, z0, len => {
+    kit.box(plinth, 0, -0.03, 0, len, 0.01, 0.75);                                     // цоколь
+    kit.box(facade, 0, 0, h, len, 0.25, h + 0.5);                                       // парапет
+    kit.box(roof, 0, -0.02, h + 0.5, len, 0.27, h + 0.55);
+    for (const z of levels) kit.box(band, 0, -0.025, z - 0.06, len, 0.01, z + 0.06);    // межэтажные пояса
+  });
+  return kit.build();
+}
+
+// беседка по контуру с карты: настил, столбы по углам, шатровая кровля
+function gazeboObject(g) {
+  const kit = new Kit(), pts = ccw(g.outline), n = pts.length;
+  const c = pts.reduce((s, p) => [s[0] + p[0] / n, s[1] + p[1] / n], [0, 0]);
+  const wood = pbr(0x9c7350, { rough: 0.8 }), roof = pbr(0x6b5a4c, { rough: 0.85 });
+  kit.prism(pbr(0xb9a58a, { rough: 0.9 }), pts, 0, 0.15);
+  for (const [x, y] of pts) kit.cylZ(wood, x + (c[0] - x) * 0.08, y + (c[1] - y) * 0.08, 0.15, 2.4, 0.06, 12);
+  const tri = [];
+  for (let i = 0; i < n; i++) {
+    const [ax, ay] = pts[i], [bx, by] = pts[(i + 1) % n], k = 1.08;
+    tri.push([c[0] + (ax - c[0]) * k, c[1] + (ay - c[1]) * k, 2.4], [c[0] + (bx - c[0]) * k, c[1] + (by - c[1]) * k, 2.4], [c[0], c[1], 3.4]);
+  }
+  kit.tris(roof, tri);
+  return kit.build();
 }
 
 function makeObject(e, nextRoomColor) {
   const g = e.geom;
   if (!g) return null;
-  const k = e.kind, t = e.type || "";
-  if (g.type === "extrusion") {
-    const shape = shapeOf(g);
-    if (k === "unit") {                                   // квартира — плита под полом; объём только при выделении
-      const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.08, bevelEnabled: false });
-      geo.translate(0, 0, (g.z0 || 0) - 0.08);
-      const n = parseInt(e.props?.number, 10);          // соседи по этажу — каждая своим цветом
-      const m = new THREE.Mesh(geo, mat(e === S.unit ? 0xd6d0c6 : NEIGHBOUR[(isNaN(n) ? 0 : n) % NEIGHBOUR.length]));
-      m.userData.floor = true;
-      m.userData.shape = shape;
-      m.userData.h = g.height || 2.5;
-      return m;
-    }
-    if (k === "space") {                                  // комната — пол; объём рисуется только при выделении
-      const geo = new THREE.ShapeGeometry(shape);
-      geo.translate(0, 0, (g.z0 || 0) + 0.004);
-      const col = t === "loggia" ? 0xd5e1e8 : t === "common" ? 0xdfe3e8 : t === "lift_shaft" ? 0x8f9aa6 : nextRoomColor();
-      const m = new THREE.Mesh(geo, mat(col, { side: THREE.DoubleSide }));
-      m.userData.floor = true;
-      m.userData.shape = shape;
-      m.userData.h = g.height || 2.5;
-      return m;
-    }
-    const h = g.height > 0 ? g.height : 0.02;
-    const geo = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false });
-    geo.translate(0, 0, g.z0 || 0);
-    let color = 0xd0d0d0;
-    if (k === "wall") color = t === "exterior" ? COL.wallExt : COL.wallInt;
-    else if (k === "building" || k === "section") color = COL.building;
-    else if (k === "feature") color = familyColor(e);
-    const m = new THREE.Mesh(geo, mat(color));
-    m.userData.h = h;
-    m.userData.shape = shape;
-    return m;
-  }
-  if (g.type === "box") {
-    const [x, y, z] = g.size;
-    const geo = new THREE.BoxGeometry(x, y, z);
-    geo.translate(x / 2, y / 2, z / 2);
-    const glass = boxColor(e) === COL.glass;
-    const holder = (S.kids.get(e.id) || []).some(c => c.kind === "storage");   // шкаф с ящиками — полупрозрачный
-    const opt = glass ? { transparent: true, opacity: 0.55 } : holder ? { transparent: true, opacity: 0.32, depthWrite: false } : {};
-    return new THREE.Mesh(geo, mat(boxColor(e), opt));
-  }
-  if (g.type === "polyline") return pipe(g.points, Math.max((g.diameter || 0.012) / 2, 0.008) * 1.6, familyColor(e));
+  if (g.type === "extrusion") return extrusionObject(e, nextRoomColor);
+  let o = null;
+  try { o = buildFamily(e, famEnv); } catch (err) { console.warn("модель", e.name, err); }
+  if (o) { addPick(e, o); return o; }
+  if (g.type === "box") return boxFallback(e);
+  if (g.type === "polyline") return lineObject(e);
   if (g.type === "point") return marker(e);
   return null;
 }
+
+// у места хранения и у спрятанной техники — невидимый объём: по нему щёлкают, его подсвечивают
+function addPick(e, o) {
+  if (e.geom?.type !== "box") return;
+  let meshes = 0;
+  o.traverse(c => { if (c.isMesh) meshes++; });
+  if (e.kind !== "storage" && meshes) return;
+  const [x, y, z] = e.geom.size;
+  const geo = new THREE.BoxGeometry(x, y, z);
+  geo.translate(x / 2, y / 2, z / 2);
+  o.add(new THREE.Mesh(geo, PICK));
+}
+
+// рентген: копия меша, видимая только там, где её закрывает стена или пол
+function addXray(o, color) {
+  const list = [];
+  o.traverse(c => { if (c.isMesh && !c.material.userData?.pick) list.push(c); });
+  for (const c of list) {
+    const x = new THREE.Mesh(c.geometry, xrayOf(color));
+    x.userData.noPick = true;
+    x.userData.xray = true;
+    c.add(x);
+  }
+}
+const XRAY_TYPES = new Set(["cable", "pipe_pair", "water_riser", "heating_manifold", "junction_box"]);
 
 function storeyLines(section) {
   // линии этажей по контуру подъезда — чтобы в виде «Дом» было видно, где какой этаж
@@ -278,69 +569,232 @@ function storeyLines(section) {
   return grp;
 }
 
+// плинтус вдоль стен комнаты, если у неё есть такая отделка; в дверных проёмах его нет
+function skirting(space) {
+  const fin = (S.refsIn.get(space.id) || []).map(r => r.rel === "finishes" && S.by.get(r.from)).filter(Boolean);
+  const sk = fin.find(f => f.type === "skirting" || f.props?.render?.on?.includes?.("skirting"));
+  if (!sk || space.geom?.type !== "extrusion" || !S.unit) return null;
+  const walls = [];
+  for (const w of S.kids.get(S.unit.id) || []) {
+    if (w.kind === "wall" && w.geom?.outline) walls.push(w.geom.outline);
+    if (w.kind === "opening" && w.type === "window" && w.geom?.type === "box") {   // под окном стена есть
+      const p = new THREE.Matrix4().makeRotationZ(THREE.MathUtils.degToRad(w.placement?.yaw || 0));
+      const [x0, y0] = w.placement?.pos || [0, 0], [sx, sy] = w.geom.size;
+      walls.push([[0, 0], [sx, 0], [sx, sy], [0, sy]].map(([x, y]) => {
+        const v = new THREE.Vector3(x, y, 0).applyMatrix4(p);
+        return [v.x + x0, v.y + y0];
+      }));
+    }
+  }
+  const color = hex(sk.props?.render?.colors?.["*"], null);
+  const mat = color != null ? pbr(color, { rough: 0.5 }) : M.skirting;
+  // у дверей с наличником плинтус кончается у наличника (render.casing_w), а не у проёма
+  const ms = mat4(space), doors = [];
+  for (const o of S.data.entities) {
+    if (o.kind !== "opening" || !o._inUnit || !["door", "entrance_door"].includes(o.type) || o.geom?.type !== "box") continue;
+    const r = o.props?.render || {};
+    if (r.casing === false) continue;
+    const [sx, sy] = o.geom.size;
+    const ov = r.casing_over ? (r.jamb ?? 0.03) - 0.005 : 0;   // наличник поверх коробки — ближе к проёму
+    doors.push({ m: mat4(o).clone().invert().multiply(ms), sx, sy, cw: (r.casing_w ?? 0.07) - ov + 0.003 });
+  }
+  const atDoor = p => doors.some(({ m, sx, sy, cw }) => {
+    const v = new THREE.Vector3(p.x, p.y, 0.05).applyMatrix4(m);
+    return sx >= sy ? v.x > -cw && v.x < sx + cw && v.y > -0.06 && v.y < sy + 0.06
+      : v.y > -cw && v.y < sy + cw && v.x > -0.06 && v.x < sx + 0.06;
+  });
+  const kit = new Kit(), out = space.geom.outline, z0 = space.geom.z0 || 0, H = 0.07, T = 0.014, step = 0.04;
+  for (let i = 0; i < out.length; i++) {
+    const a = new THREE.Vector2(...out[i]), b = new THREE.Vector2(...out[(i + 1) % out.length]);
+    const len = a.distanceTo(b);
+    if (len < 0.1) continue;
+    const d = b.clone().sub(a).divideScalar(len), n = new THREE.Vector2(d.y, -d.x);   // наружу из комнаты (контур против часовой)
+    const isWall = s => {
+      const p = a.clone().addScaledVector(d, s).addScaledVector(n, 0.03);
+      return walls.some(w => inPoly(w, p.x, p.y)) && !atDoor(p);
+    };
+    const edge = (s0, s1) => {                             // граница между точками в разном состоянии — делением пополам
+      const v0 = isWall(s0);
+      for (let k = 0; k < 10; k++) { const m = (s0 + s1) / 2; if (isWall(m) === v0) s0 = m; else s1 = m; }
+      return (s0 + s1) / 2;
+    };
+    const put = (s0, s1) => {
+      if (s1 - s0 <= 0.05) return;
+      const ang = Math.atan2(d.y, d.x), m = new THREE.Matrix4().makeTranslation(a.x, a.y, z0).multiply(new THREE.Matrix4().makeRotationZ(ang));
+      kit.at(m, () => kit.box(mat, s0, 0, 0, s1, T, H, 0.002));
+    };
+    let prev = null, ps = 0, start = null;
+    for (let s = step / 2; s < len; s += step) {
+      const w = isWall(s);
+      if (prev === null) { if (w) start = 0; }
+      else if (w !== prev) {
+        const at = edge(ps, s);
+        if (w) start = at; else { put(start, at); start = null; }
+      }
+      prev = w; ps = s;
+    }
+    if (start !== null) put(start, len);
+  }
+  const g = kit.build();
+  g.userData.noPick = true;
+  return g;
+}
+
 function build() {
   for (const o of S.obj.values()) o.traverse(c => c.geometry?.dispose());
-  world.clear(); S.obj.clear(); S.labels.forEach(l => l.el.remove()); S.labels = []; S.devices = [];
+  helpersLight.children.forEach(c => c.geometry.dispose());
+  helpersLight.clear();
+  world.clear(); S.obj.clear(); S.labels.forEach(l => l.el.remove()); S.labels = []; S.devices = []; NB = null;
+  ceilings.children.forEach(c => c.geometry.dispose());
+  ceilings.clear();
   let rn = 0;
-  const nextRoomColor = () => ROOM[rn++ % ROOM.length];
+  const nextRoomColor = () => [0xf3e6d3, 0xe0ecdc, 0xdce7f2, 0xf2dfe3, 0xe8e1f2, 0xefeccf][rn++ % 6];
   for (const e of S.data.entities) {
     let o = null;
     try { o = makeObject(e, nextRoomColor); } catch (err) { console.warn("геометрия", e.name, err); }
     if (!o) continue;
     o.traverse(c => { c.userData.id = e.id; });
     o.matrixAutoUpdate = false;
-    o.userData.base = new THREE.Matrix4().set(...e.m.flat());
+    o.userData.base = mat4(e).clone();
     o.matrix.copy(o.userData.base);
     if (e.kind === "section") o.add(storeyLines(e));
+    if (e.kind === "mep" && (XRAY_TYPES.has(e.type) || e.geom?.type === "polyline")) addXray(o, familyColor(e));
+    if (e.kind === "space" && e._inUnit) {
+      const sk = skirting(e);
+      if (sk) { sk.traverse(c => { c.userData.id = e.id; c.userData.noPick = true; }); o.add(sk); }
+      const ce = ceilingOf(e);
+      if (ce) ceilings.add(ce);
+    }
     world.add(o);
     S.obj.set(e.id, o);
     if (e.kind === "device") S.devices.push(e);
   }
   world.updateMatrixWorld(true);
   placeLooseDevices();
+  makeGround();
   makeLabels();
   makePuck();
   applyView();
   paintDevices();
 }
 
+// потолок комнаты на высоте потолка квартиры: виден только снизу (из комнаты), сверху на квартиру не мешает
+function ceilingOf(space) {
+  const g = space.geom;
+  if (g?.type !== "extrusion" || !S.unit) return null;
+  const geo = new THREE.ShapeGeometry(shapeOf(g));
+  geo.translate(0, 0, (g.z0 || 0) + (S.unit.props?.ceiling || g.height || 2.5));
+  const m = new THREE.Mesh(geo, M.ceiling);
+  m.matrixAutoUpdate = false;
+  m.matrix.copy(mat4(space));
+  m.receiveShadow = true;
+  m.userData.noPick = true;
+  return m;
+}
+
+// земля под кварталом невидима, на ней только тени домов: цвет земли — фон страницы, в любой теме
+function makeGround() {
+  backdrop.clear();
+  const box = new THREE.Box3();
+  for (const e of S.data.entities) if (["building", "section", "feature"].includes(e.kind) && S.obj.has(e.id)) box.expandByObject(S.obj.get(e.id));
+  if (box.isEmpty()) return;
+  const c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
+  const r = Math.max(s.x, s.y) * 1.2 + 40;
+  const site = S.data.entities.find(e => e.kind === "site");
+  const z = site ? mat4(site).elements[14] : box.min.z;
+  const g = new THREE.Mesh(new THREE.CircleGeometry(r, 64), new THREE.ShadowMaterial({ opacity: 0.2, depthWrite: false }));
+  g.position.set(c.x, c.y, z - 0.03);
+  g.receiveShadow = true;
+  g.userData.noPick = true;
+  backdrop.add(g);
+}
+
+// устройства без геометрии: светильник — у потолка в своей точке или в центре комнаты, с пятном света на полу;
+// остальное — значок
 function placeLooseDevices() {
-  // устройства без геометрии — значок в своей комнате: свет под потолком, остальное рядом
   const n = new Map();
   const ceil = S.unit?.props?.ceiling || 2.5;
   for (const e of S.data.entities) {
     if (e.kind !== "device" || e.geom || !e.parent || !S.obj.has(e.parent)) continue;
-    const box = new THREE.Box3().setFromObject(S.obj.get(e.parent));
+    const room = S.obj.get(e.parent);
+    const box = new THREE.Box3().setFromObject(room);
     const c = box.getCenter(new THREE.Vector3());
     const i = e.type === "light" ? 0 : (n.get(e.parent) || 0) + 1;
     if (e.type !== "light") n.set(e.parent, i);
     const dz = DEV_H[e.type] ?? 1.0;
-    let geo;
-    if (e.type === "light") { geo = new THREE.CylinderGeometry(0.22, 0.22, 0.05, 8); geo.rotateX(Math.PI / 2); }
-    else geo = new THREE.IcosahedronGeometry(0.1, 0);
-    const m = new THREE.Mesh(geo, ownMat(COL.devOff));
-    const ang = i * 2.1;
-    m.position.set(c.x + (i ? Math.cos(ang) * 0.55 : 0), c.y + (i ? Math.sin(ang) * 0.55 : 0),
-      box.min.z + (dz < 0 ? ceil + dz : dz));
-    m.userData.id = e.id;
-    m.userData.z = m.position.z;
-    if (e.type === "light") m.userData.zCut = box.min.z + 1.35;
+    const own = ownMat(e.type === "light" ? COL.devOff : COL.badge), dot = new Kit();
+    if (e.type === "light") dot.torus(own, 0, 0, 0.004, 0.11, 0.007, 40);   // на срезе — кольцо на полу под светильником
+    else dot.sphere(own, 0, 0, 0, 0.035, 20);
+    let m;
+    if (e.type === "light") {                             // плафон у потолка; на срезе потолка нет — точка
+      const kit = new Kit();
+      fixture(kit, e.props?.render?.fixture, own, e.props?.render?.angle ?? 20, e.props?.render?.diameter ?? null, e.props?.render || {});
+      const full = kit.build(), cut = dot.build();
+      full.traverse(x => { x.castShadow = false; });     // тень люстры от «солнца» ложилась на пол пауком
+      full.position.z = ceil;
+      cut.position.z = 0;
+      full.userData.variant = "full";
+      cut.userData.variant = "cut";
+      m = new THREE.Group();
+      m.add(full, cut);
+      m.userData.variants = true;
+      m.position.set(c.x, c.y, box.min.z);
+      if (e.placement?.pos) {                             // точка светильника известна (без коробки) — ставим туда
+        const at = new THREE.Vector3().setFromMatrixPosition(mat4(e));
+        m.position.set(at.x, at.y, box.min.z);
+      }
+      m.quaternion.setFromRotationMatrix(new THREE.Matrix4().extractRotation(room.matrixWorld));   // render.angle — от осей комнаты
+      const pool = lightPool(S.by.get(e.parent), room);
+      if (pool) { helpersLight.add(pool); m.userData.pool = pool; }
+    } else {                                              // место в комнате неизвестно — индикатор состояния
+      m = dot.build();
+      const ang = i * 2.1;
+      m.position.set(c.x + Math.cos(ang) * 0.55, c.y + Math.sin(ang) * 0.55, box.min.z + dz);
+    }
+    m.traverse(x => { x.userData.id = e.id; });
     world.add(m);
     S.obj.set(e.id, m);
   }
+}
+
+// пятно тёплого света на полу комнаты: ярче под светильником, к стенам гаснет; за стены не выходит
+const helpersLight = new THREE.Group();
+scene.add(helpersLight);
+function lightPool(space, room) {
+  if (!space?.geom?.outline) return null;
+  helpersLight.matrixAutoUpdate = false;
+  const geo = new THREE.ShapeGeometry(shapeOf(space.geom));
+  geo.translate(0, 0, (space.geom.z0 || 0) + 0.008);
+  const b = new THREE.Box2();
+  for (const [x, y] of space.geom.outline) b.expandByPoint(new THREE.Vector2(x, y));
+  const c = b.getCenter(new THREE.Vector2()), r = b.getSize(new THREE.Vector2()).length() * 0.62;
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { c: { value: c }, r: { value: r }, k: { value: 0 }, color: { value: new THREE.Color(0xffd28a) } },
+    vertexShader: "varying vec2 p; void main(){ p = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+    fragmentShader: "uniform vec2 c; uniform float r; uniform float k; uniform vec3 color; varying vec2 p;"
+      + "void main(){ float d = distance(p, c) / r; float a = k * pow(clamp(1.0 - d, 0.0, 1.0), 1.6); gl_FragColor = vec4(color * a, 1.0); }",
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.matrixAutoUpdate = false;
+  mesh.matrix.copy(room.matrix);
+  mesh.userData.noPick = true;
+  mesh.visible = false;
+  return mesh;
 }
 
 function makePuck() {
   const vac = S.data.entities.find(e => e.kind === "device" && e.bind?.["dreame.camera"]);
   S.puck = null;
   if (!vac) return;
-  const g = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.175, 0.095, 10), mat(COL.vacuum));
-  body.rotation.x = Math.PI / 2;
-  body.position.z = 0.05;
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.2, 0.04), mat(0xffc928));
-  nose.position.set(0.12, 0, 0.1);
-  g.add(body, nose);
+  // робот-пылесос: корпус, бампер спереди (+X), башня лидара
+  const kit = new Kit();
+  kit.cylZ(pbr(0xeef0f2, { rough: 0.35 }), 0, 0, 0.012, 0.09, 0.175, 48);
+  kit.cylZ(M.graphite, 0, 0, 0.0, 0.012, 0.16, 48);
+  kit.lathe(M.graphite, [[0.176, 0.02], [0.18, 0.02], [0.18, 0.075], [0.176, 0.075]], 0, 0, 48);
+  kit.cylZ(pbr(0x2b2e33, { rough: 0.3 }), 0.06, 0, 0.09, 0.115, 0.042, 32);
+  kit.cylZ(M.chrome, 0.06, 0, 0.115, 0.118, 0.042, 32);
+  const g = kit.build();
   g.traverse(c => { c.userData.id = vac.id; });
   g.visible = false;
   g.userData.camera = vac.bind["dreame.camera"];
@@ -386,7 +840,7 @@ function hasSectionGeom(e) { return (S.kids.get(e.id) || []).some(c => c.kind ==
 
 function visibleIn(e) {
   const k = e.kind, v = S.view;
-  if (v === "unit") return e._inUnit && (S.mep || k !== "mep");
+  if (v === "unit") return e._inUnit && (S.mep || !(k === "mep" && HIDDEN_MEP.has(e.type)));
   if (v === "house") {
     if (e._inUnit) return ["wall", "space", "opening", "unit"].includes(k);
     if (e._myBld && e._floor && ["unit", "space", "mep"].includes(k)) return true;   // соседи, общие зоны, щиток этажа
@@ -397,6 +851,11 @@ function visibleIn(e) {
 }
 
 function applyView() {
+  const cut = S.view === "unit" && S.cut;
+  // глубина: в виде квартиры ближняя и дальняя плоскости ближе друг к другу — точнее буфер глубины (иначе за тонкой
+  // стеной проступает силуэт вещи из соседней комнаты)
+  Object.assign(camera, S.view === "unit" ? { near: 0.05, far: 300 } : { near: 0.3, far: 5000 });
+  camera.updateProjectionMatrix();
   for (const [id, o] of S.obj) {
     const e = S.by.get(id);
     o.visible = visibleIn(e);
@@ -405,27 +864,34 @@ function applyView() {
     if (S.view === "site" && e._inUnit) over = ACCENT;
     if (S.view === "site" && e._myBld && e.kind === "section") over = GHOST2;
     o.traverse(c => {
-      if (!c.isMesh) return;
+      if (!c.isMesh || c.userData.xray || c.material === PICK) return;
       if (!c.userData.mat0) c.userData.mat0 = c.material;
       c.material = c.userData.hl || over || c.userData.mat0;
     });
     if (e.kind === "section") o.children.forEach(c => { if (c.userData.noPick) c.visible = S.view !== "site"; });
+    if (o.userData.variants) o.children.forEach(c => { c.visible = c.userData.variant === (cut ? "cut" : "full"); });
     if (o.userData.zCut != null) {
-      o.position.z = S.view === "unit" && S.cut ? o.userData.zCut : o.userData.z;
+      o.position.z = cut ? o.userData.zCut : o.userData.z;
       o.updateMatrix();
     }
-    // срез: стены квартиры ниже, чтобы видеть внутрь
-    if (e.kind === "wall" || (e.kind === "opening" && e._inUnit)) {
-      const h = e.geom?.height || e.geom?.size?.[2] || 2.5;
-      const z0 = e.kind === "opening" ? e.placement?.pos?.[2] || 0 : e.geom?.z0 || 0;
-      const top = 1.15, cut = S.view === "unit" && S.cut;
+    o.traverse(c => { if (c.userData.xray) c.visible = S.mep && S.view === "unit"; });
+    // квартира целиком (под потолком): стены и проёмы не бросают тень от «солнца» внутрь комнат — свет в комнате
+    // рассеянный, косых клиньев тени на стенах нет
+    if ((e.kind === "wall" || e.kind === "opening") && e._inUnit) o.traverse(c => { if (c.isMesh && !c.userData.xray && !c.material?.transparent && c.material !== PICK) c.castShadow = S.view !== "unit" || cut; });
+    // срез: стены квартиры ниже, чтобы видеть внутрь (проёмы срезаются своей сборкой)
+    if (e.kind === "wall") {
+      const h = e.geom?.height || 2.5, z0 = e.geom?.z0 || 0;
       o.matrix.copy(o.userData.base);
-      if (cut && z0 + h > top) {
-        if (z0 >= top) o.visible = false;
-        else o.matrix.multiply(new THREE.Matrix4().makeScale(1, 1, (top - z0) / h));
+      if (cut && z0 + h > CUT) {
+        if (z0 >= CUT) o.visible = false;
+        else o.matrix.multiply(new THREE.Matrix4().makeTranslation(0, 0, z0)).multiply(new THREE.Matrix4().makeScale(1, 1, (CUT - z0) / h))
+          .multiply(new THREE.Matrix4().makeTranslation(0, 0, -z0));
       }
     }
   }
+  for (const p of helpersLight.children) p.visible = S.view === "unit" && p.material.uniforms.k.value > 0;
+  backdrop.visible = S.view !== "unit";
+  ceilings.visible = S.view === "unit" && !cut;
   world.updateMatrixWorld(true);
   document.querySelectorAll("#views button").forEach(b => b.classList.toggle("on", b.dataset.view === S.view));
   $("#t-cut").classList.toggle("on", S.cut);
@@ -433,6 +899,27 @@ function applyView() {
   $("#t-cut").disabled = S.view !== "unit";
   $("#t-mep").disabled = S.view !== "unit";
   if (S.puck) S.puck.visible = S.view === "unit" && !!S.puck.userData.pose;
+  fitShadow();
+  invalidate();
+}
+
+// солнце светит в квартиру сверху-сбоку (со стороны улицы); тень считается только для того, что видно
+function fitShadow() {
+  const box = new THREE.Box3();
+  for (const o of S.obj.values()) if (o.visible) box.expandByObject(o);
+  if (box.isEmpty()) return;
+  const c = box.getCenter(new THREE.Vector3()), r = box.getSize(new THREE.Vector3()).length() / 2 + 1;
+  const dir = new THREE.Vector3(-0.42, -0.5, 0.76);
+  if (S.unit) dir.applyMatrix4(new THREE.Matrix4().extractRotation(mat4(S.unit)));
+  dir.normalize();
+  sun.target.position.copy(c);
+  sun.position.copy(c).addScaledVector(dir, r * 2);
+  const cam = sun.shadow.camera;
+  Object.assign(cam, { left: -r, right: r, top: r, bottom: -r, near: 0.1, far: r * 4 });
+  cam.updateProjectionMatrix();
+  sun.target.updateMatrixWorld();
+  sun.updateMatrixWorld();
+  sun.shadow.needsUpdate = true;
 }
 
 function setView(v, fit = true) {
@@ -458,6 +945,7 @@ function fitBox(box, k = 1.2, animate = false) {
   if (!isFinite(dir.x)) dir.set(-0.4, -0.6, 0.7).normalize();
   const to = c.clone().add(dir.multiplyScalar(dist));
   if (animate) fly(to, c); else { camera.position.copy(to); controls.target.copy(c); controls.update(); }
+  invalidate();
 }
 
 function lookAt(box, dist, elevation = 66) {
@@ -483,9 +971,10 @@ function frontView(target, furniture) {
 let flight = null;
 function fly(pos, target) {
   flight = { t0: performance.now(), p0: camera.position.clone(), q0: controls.target.clone(), p1: pos, q1: target };
+  invalidate();
 }
 
-// ── кадр: полёт, подписи ────────────────────────────────────────────────────
+// ── кадр: рисуем только когда что-то изменилось (бережём батарею телефона) ──
 const v3 = new THREE.Vector3();
 renderer.setAnimationLoop(() => {
   if (flight) {
@@ -493,9 +982,14 @@ renderer.setAnimationLoop(() => {
     camera.position.lerpVectors(flight.p0, flight.p1, s);
     controls.target.lerpVectors(flight.q0, flight.q1, s);
     if (u >= 1) flight = null;
+    dirty = true;
   }
-  controls.update();
-  renderer.render(scene, camera);
+  if (controls.update()) dirty = true;
+  if (!dirty) return;
+  dirty = false;
+  const t0 = performance.now();
+  composer.render();
+  quality(performance.now() - t0);
   const w = canvas.clientWidth, h = canvas.clientHeight;
   for (const l of S.labels) {
     const o = S.obj.get(l.id);
@@ -508,6 +1002,24 @@ renderer.setAnimationLoop(() => {
     l.el.style.top = `${(-v3.y * 0.5 + 0.5) * h}px`;
   }
 });
+
+// качество под устройство: если кадр стабильно дольше 30 мс, сначала без затенения углов, потом пикселей меньше.
+// С ?ao=0 или ?ao=1 в адресе качество не меняется само.
+const slow = { n: 0, sum: 0, step: QS.has("ao") ? 2 : 0 };
+function quality(ms) {
+  if (slow.step >= 2) return;
+  slow.n++;
+  slow.sum += ms;
+  if (slow.n < 20) return;
+  const avg = slow.sum / slow.n;
+  slow.n = slow.sum = 0;
+  if (avg < 30) return;
+  if (slow.step === 0) gtao.enabled = false;
+  else { renderer.setPixelRatio(1); resize(); }
+  slow.step++;
+  console.info(`Cherry BiM: кадр ${Math.round(avg)} мс — упрощаю картинку (шаг ${slow.step})`);
+  invalidate();
+}
 
 // ── выбор ───────────────────────────────────────────────────────────────────
 const ray = new THREE.Raycaster();
@@ -564,25 +1076,52 @@ function related(e) {
 function clearHighlight() {
   for (const o of S.obj.values()) o.traverse(c => { if (c.userData.hl) { delete c.userData.hl; c.material = c.userData.mat0 || c.material; } });
   helpers.children.filter(c => c !== S.puck).forEach(c => { helpers.remove(c); c.traverse(x => x.geometry?.dispose()); });
+  invalidate();
 }
 
 const hlMats = new Map();
-function hlMat(color) {
-  if (!hlMats.has(color)) hlMats.set(color, new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.35, flatShading: true }));
-  return hlMats.get(color);
+function hlMat(color, see = false) {
+  const key = color + (see ? "s" : "");
+  if (!hlMats.has(key)) {
+    hlMats.set(key, new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.4, roughness: 0.6,
+      transparent: see, opacity: see ? 0.28 : 1, depthWrite: !see }));
+  }
+  return hlMats.get(key);
 }
 
-function highlight(o, color) {
+function highlight(o, color, see = false) {
   if (!o) return;
   const e = S.by.get(o.userData.id);
   if (o.userData.floor) {                                 // комната: полупрозрачный объём и рёбра
     const geo = new THREE.ExtrudeGeometry(o.userData.shape, { depth: o.userData.h, bevelEnabled: false });
-    const vol = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.12, depthWrite: false }));
+    const vol = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, transparent: true, opacity: 0.12, depthWrite: false }));
     const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color }));
     for (const x of [vol, edges]) { x.matrixAutoUpdate = false; x.matrix.copy(o.matrixWorld); x.userData.noPick = true; helpers.add(x); }
   }
   if (e && ["space", "section", "building"].includes(e.kind) && o.userData.floor) return;
-  o.traverse(c => { if (c.isMesh) { if (!c.userData.mat0) c.userData.mat0 = c.material; c.userData.hl = hlMat(color); c.material = c.userData.hl; } });
+  o.traverse(c => {
+    if (!c.isMesh || c.userData.xray) return;
+    if (!c.userData.mat0) c.userData.mat0 = c.material;
+    c.userData.hl = hlMat(color, see || c.userData.mat0 === PICK);
+    c.material = c.userData.hl;
+  });
+  invalidate();
+}
+
+// шкаф, в котором выбрано место хранения, становится полупрозрачным — видно ящик внутри
+function seeThrough(e) {
+  const chain = [e, ...ancestors(e.id)];
+  const holder = chain.find(a => a.kind === "furniture" && (S.kids.get(a.id) || []).some(k => k.kind === "storage"));
+  if (!holder || holder === e && !S.obj.has(holder.id)) return null;
+  const o = S.obj.get(holder.id);
+  if (!o) return null;
+  o.traverse(c => {
+    if (!c.isMesh || c.userData.xray || c.material === PICK || c.userData.hl) return;
+    if (!c.userData.mat0) c.userData.mat0 = c.material;
+    c.userData.hl = ghostOf(c.userData.mat0);
+    c.material = c.userData.hl;
+  });
+  return holder;
 }
 
 function select(id, { fly: doFly = true } = {}) {
@@ -592,10 +1131,12 @@ function select(id, { fly: doFly = true } = {}) {
   const e = S.sel;
   if (e._inUnit && S.view !== "unit") setView("unit", false);
   else if (e._floor && S.view !== "house") setView("house", false);
-  if (e.kind === "mep" && !S.mep) { S.mep = true; applyView(); }
+  if (e.kind === "mep" && HIDDEN_MEP.has(e.type) && !S.mep) { S.mep = true; applyView(); }
   const target = meshFor(e.id);
   for (const rid of related(e)) { const o = S.obj.get(rid); if (o && o !== target) highlight(o, COL.rel); }   // без подъёма к родителю: группа без геометрии не подсвечивает всю квартиру
-  highlight(target, COL.sel);
+  const holder = target && seeThrough(S.by.get(target.userData.id) || e);
+  if (holder && S.obj.get(holder.id) === target) highlight(target, COL.sel, true);   // сам шкаф — прозрачным оранжевым
+  else highlight(target, COL.sel);
   const shelf = target && [S.by.get(target.userData.id), ...ancestors(target.userData.id)].filter(a => ["storage", "furniture"].includes(a.kind)).pop();
   if (target && doFly && shelf && e._inUnit && shelf.geom?.type === "box") frontView(target, shelf);
   else if (target && doFly) {
@@ -668,6 +1209,54 @@ function relPath(e, from) {
   return chain.join(" → ");
 }
 
+// ── документы: свои — дети вида document и документы со связью documents на сущность ────
+function docsOf(id) {
+  const out = (S.kids.get(id) || []).filter(k => k.kind === "document");
+  for (const r of S.refsIn.get(id) || []) {
+    const d = r.rel === "documents" && S.by.get(r.from);
+    if (d && !out.includes(d)) out.push(d);
+  }
+  return out;
+}
+const kb = n => n >= 2 ** 20 ? `${(n / 2 ** 20).toFixed(1).replace(".", ",")} МБ` : `${Math.max(1, Math.round(n / 1024))} КБ`;
+const dmy = s => String(s).slice(0, 10).split("-").reverse().join(".");
+// d.copy — сервер проверил, что копия лежит в папке документов (пакет могли выложить раньше копий)
+function docMeta(d) {
+  const p = d.props || {};
+  return [FMT[p.mime] || (p.mime ? p.mime.split("/").pop() : ""), p.pages ? `${p.pages} стр.` : "", p.size ? kb(p.size) : "",
+    d.copy && p.saved_at ? `копия от ${dmy(p.saved_at)}` : "", p.url && !d.copy ? "копии нет, только ссылка" : ""].filter(Boolean).join(" · ");
+}
+function docLinks(d) {
+  const p = d.props || {}, out = [];
+  if (d.copy) out.push(`<a href="api/doc/${encodeURIComponent(d.id)}" target="_blank" rel="noopener">открыть</a>`);
+  if (p.url) out.push(`<a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">сайт ↗</a>`);
+  return out.join(" · ");
+}
+function docRow(d) {
+  const meta = [d.ru, docMeta(d)].filter(Boolean).join(" · "), acts = docLinks(d);
+  return `<li>${link(d)} <small>${esc(meta)}</small>${acts ? `<div class="acts">${acts}</div>` : ""}</li>`;
+}
+// видно хвост только у длинного номера: у IMEI и MAC — 4 знака, у серийного из 8–11 — 2, короткий скрыт целиком
+const mask = v => { const s = String(v), n = s.length >= 12 ? 4 : s.length >= 8 ? 2 : 0; return n ? "•••• " + s.slice(-n) : "••••"; };
+function docForm(e) {
+  const types = Object.entries(S.data.doc_types || {}).map(([k, ru]) => `<option value="${k}"${k === "manual" ? " selected" : ""}>${esc(ru)}</option>`).join("");
+  return `<details class="adddoc"><summary>Добавить документ или ссылку</summary><form class="doc" data-to="${e.id}">`
+    + `<input name="title" placeholder="Название: инструкция, чек, гарантия…"><select name="type">${types}</select>`
+    + `<input name="url" type="url" placeholder="Ссылка (необязательно)"><input name="file" type="file">`
+    + `<label class="note"><input name="copy" type="checkbox" checked> сохранить копию страницы по ссылке</label>`
+    + `<button class="btn main">Записать</button></form></details>`;
+}
+
+// живое состояние HA перерисовывает только свой блок: иначе каждое новое значение температуры стирало бы
+// начатую форму документа или вещи в карточке, а во время загрузки давало бы нажать «Записать» второй раз
+function refreshHa(e) {
+  const box = $("#card .ha");
+  if (!box) return;
+  const ents = bound(e);
+  if (e.kind === "device" && e.bind?.["dreame.camera"]) ents.push(e.bind["dreame.camera"]);
+  box.innerHTML = ents.filter(x => !x.startsWith("camera.")).map(stateRow).join("");
+}
+
 function renderCard(e) {
   const chain = ancestors(e.id).reverse().filter(a => a.kind !== "site");
   let h = `<button class="x" data-act="close" title="Закрыть">×</button>`;
@@ -676,17 +1265,47 @@ function renderCard(e) {
   const ents = bound(e);
   if (e.kind === "device" && e.bind?.["dreame.camera"]) ents.push(e.bind["dreame.camera"]);
   if (ents.length) h += `<div class="ha">${ents.filter(x => !x.startsWith("camera.")).map(stateRow).join("")}</div>`;
-  const props = Object.entries(e.props || {});
+  const props = Object.entries(e.props || {}).filter(([k]) => !HIDDEN_PROPS.has(k) && !(e.kind === "document" && DOC_PROPS.has(k)));
+  if (e.kind === "document") {                             // документ: открыть копию, скачать, на сайт; к чему относится
+    const p = e.props || {}, btns = [];
+    if (e.copy) btns.push(`<a class="btn main" href="api/doc/${encodeURIComponent(e.id)}" target="_blank" rel="noopener">Открыть копию</a>`,
+      `<a class="btn" href="api/doc/${encodeURIComponent(e.id)}?dl=1" download>Скачать</a>`);
+    if (p.url) btns.push(`<a class="btn" href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">На сайте ↗</a>`);
+    if (btns.length) h += `<div class="row">${btns.join("")}</div>`;
+    const meta = [docMeta(e), p.file && !e.copy ? "копию ещё не положили в папку документов" : ""].filter(Boolean).join(" · ");
+    if (meta) h += `<p class="note">${esc(meta)}</p>`;
+  }
   if (props.length) h += `<dl class="props">${props.map(([k, v]) => `<dt>${esc(PROP[k] || k)}</dt><dd>${fmt(v)}</dd>`).join("")}</dl>`;
+  const ids = Object.entries(e.props?.ids || {});          // закрытые номера: скрыты, показать по кнопке
+  if (ids.length) h += `<h3>Номера</h3><dl class="props">${ids.map(([k, v]) => `<dt>${esc(k)}</dt><dd><span class="secret" data-v="${esc(v)}">${esc(mask(v))}</span> `
+    + `<button class="lnk" data-act="reveal">показать</button></dd>`).join("")}</dl>`;
   if (e.aliases?.length) h += `<p class="note">Ещё называют: ${esc(e.aliases.join(", "))}</p>`;
 
   const fin = (S.refsIn.get(e.id) || []).filter(r => r.rel === "finishes").map(r => S.by.get(r.from)).filter(Boolean);
   if (fin.length) h += `<h3>Отделка</h3><ul>${fin.map(f => `<li>${link(f)}</li>`).join("")}</ul>`;
-  const out = (e.refs || []).filter(r => S.by.has(r.to)).map(r => `<li>${esc(REL[r.rel] || r.rel)}: ${link(S.by.get(r.to))}</li>`);
-  const inc = (S.refsIn.get(e.id) || []).filter(r => r.rel !== "finishes").map(r => `<li>${esc(REL_IN[r.rel] || r.rel)}: ${link(S.by.get(r.from))}</li>`);
+  if (e.kind === "document") {
+    const about = [S.by.get(e.parent), ...(e.refs || []).filter(r => r.rel === "documents").map(r => S.by.get(r.to))].filter(Boolean);
+    if (about.length) h += `<h3>Относится к</h3><ul>${about.map(a => `<li>${link(a)} <small>${esc(a.ru)}</small></li>`).join("")}</ul>`;
+    if (e.editable) h += `<div class="row"><button class="btn" data-act="doc-remove">Убрать документ</button></div>`;
+  }
+  const out = (e.refs || []).filter(r => S.by.has(r.to) && r.rel !== "documents").map(r => `<li>${esc(REL[r.rel] || r.rel)}: ${link(S.by.get(r.to))}</li>`);
+  const inc = (S.refsIn.get(e.id) || []).filter(r => !["finishes", "documents"].includes(r.rel)).map(r => `<li>${esc(REL_IN[r.rel] || r.rel)}: ${link(S.by.get(r.from))}</li>`);
   if (out.length + inc.length) h += `<h3>Связи</h3><ul>${[...out, ...inc].join("")}</ul>`;
+  if (e.kind !== "document") {                             // документы: свои и ближайшего родителя (у ящика — проект кухни)
+    const own = docsOf(e.id);
+    const whole = new Set(S.data.doc_inherited || ["project", "assembly", "contract"]);   // проект — и у частей; чеки — нет
+    // вещь в шкафу — не часть шкафа; документ, который уже в своих, второй раз «у родителя» не показывается
+    const up = e.kind === "item" ? null
+      : ancestors(e.id).map(a => [a, docsOf(a.id).filter(d => whole.has(d.type) && !own.includes(d))]).find(([, ds]) => ds.length);
+    if (own.length || up || S.features.docs) {
+      h += `<h3>Документы${own.length ? ` (${own.length})` : ""}</h3>`;
+      if (own.length) h += `<ul class="docs">${own.map(docRow).join("")}</ul>`;
+      if (up) h += `<p class="note">У «${esc(up[0].name)}»:</p><ul class="docs">${up[1].map(docRow).join("")}</ul>`;
+      if (S.features.docs) h += docForm(e);
+    }
+  }
 
-  const kids = (S.kids.get(e.id) || []).filter(k => !["wall", "item", "finish", "system"].includes(k.kind));
+  const kids = (S.kids.get(e.id) || []).filter(k => !["wall", "item", "finish", "system", "document"].includes(k.kind));
   if (kids.length) {
     const groups = {};
     for (const k of kids) (groups[k.ru || k.kind] ||= []).push(k);
@@ -738,7 +1357,7 @@ function renderTree() {
   S.sel = null;
   const skip = new Set(["wall", "opening", "finish", "system"]);
   const node = (e, depth) => {
-    const kids = (S.kids.get(e.id) || []).filter(k => !skip.has(k.kind) && (S.mep || k.kind !== "mep"));
+    const kids = (S.kids.get(e.id) || []).filter(k => !skip.has(k.kind) && (S.mep || !(k.kind === "mep" && HIDDEN_MEP.has(k.type))));
     const label = `${link(e)} <small>${esc(e.ru)}${e.props?.qty ? " ×" + esc(e.props.qty) : ""}</small>`;
     if (!kids.length) return `<div class="leaf">${label}</div>`;
     return `<details><summary>${label}</summary>${kids.map(k => node(k, depth + 1)).join("")}</details>`;
@@ -769,6 +1388,18 @@ $("#card").addEventListener("click", async ev => {
     else if (act === "move") pickPlace(e);
     else if (act === "edit") editItem(e);
     else if (act === "photo") photoFlow(e.id);
+    else if (act === "reveal") {                           // показать номер; второй щелчок — скопировать
+      const sp = b.previousElementSibling;
+      if (b.textContent === "показать") { sp.textContent = sp.dataset.v; b.textContent = "скопировать"; }
+      else if (navigator.clipboard) { await navigator.clipboard.writeText(sp.dataset.v); toast("Скопировал"); }
+      else {                                               // HA по http: буфера обмена нет — выделить и скопировать по-старому
+        getSelection().selectAllChildren(sp);
+        toast(document.execCommand("copy") ? "Скопировал" : "Выделил номер: скопируйте вручную");
+      }
+    }
+    else if (act === "doc-remove" && confirm(`Убрать документ «${e.name}»?`)) {
+      await api(`api/docs/${e.id}`, { method: "DELETE" }); toast("Убрал"); await reload(e.parent);
+    }
     else if (act === "tv") {
       b.disabled = true;
       const r = await send("api/show", { ref: e.id });
@@ -781,6 +1412,8 @@ $("#card").addEventListener("click", async ev => {
 });
 
 $("#card").addEventListener("submit", async ev => {
+  const fd = ev.target.closest("form.doc");
+  if (fd) { ev.preventDefault(); await addDoc(fd); return; }
   const f = ev.target.closest("form.add");
   if (!f) return;
   ev.preventDefault();
@@ -817,18 +1450,46 @@ function pickPlace(item) {
   inp.focus();
 }
 
+// документ к сущности: файл грузится как есть, ссылка — со скачанной сервером копией (или только ссылкой)
+async function addDoc(f) {
+  const file = f.file.files[0], url = f.url.value.trim(), title = f.title.value.trim(), type = f.type.value;
+  if (!file && !url) { toast("Нужен файл или ссылка"); return; }
+  if (file && !file.size) { toast("Файл пустой"); return; }
+  const btn = f.querySelector("button");
+  btn.disabled = true;
+  btn.textContent = file ? "Загружаю…" : f.copy.checked ? "Сохраняю копию…" : "Записываю…";
+  try {
+    if (file) {
+      const qs = new URLSearchParams({ to: f.dataset.to, title: title || file.name.replace(/\.[^.]+$/, ""), type, url, filename: file.name });
+      await api(`api/docs?${qs}`, { method: "POST", body: file, headers: { "Content-Type": file.type || "application/octet-stream" } });
+    } else await send("api/docs", { to: f.dataset.to, title, type, url, copy: f.copy.checked });
+    toast("Документ записан");
+    await reload(f.dataset.to);
+  } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = "Записать"; }
+}
+
 function editItem(item) {
   const box = $("#act");
+  const ids = Object.entries(item.props?.ids || {}).map(([k, v]) => `${k}: ${v}`).join("\n");
   box.innerHTML = `<form class="add" data-edit="1"><input name="name" value="${esc(item.name)}" required>`
     + `<input name="qty" type="number" min="0" step="any" value="${esc(item.props?.qty ?? "")}" placeholder="шт.">`
     + `<input name="note" value="${esc(item.props?.note ?? "")}" placeholder="заметка" style="grid-column: 1 / -1">`
+    + `<textarea name="ids" rows="2" placeholder="Номера, каждый с новой строки: IMEI: 356…, Серийный номер: …" style="grid-column: 1 / -1">${esc(ids)}</textarea>`
     + `<button class="btn main">Сохранить</button></form>`;
   box.querySelector("form").addEventListener("submit", async ev => {
     ev.preventDefault();
     ev.stopPropagation();
     const f = ev.target;
+    const ids = {};                                        // «IMEI: 356…» по строке; второй IMEI — «IMEI 2»
+    for (const l of f.ids.value.split("\n").map(s => s.trim()).filter(Boolean)) {
+      const [k, v] = l.split(/:(.*)/s).map(x => (x || "").trim());
+      if (!k || !v) { toast(`Не понял строку «${l}»: нужно «название: номер»`); return; }
+      let key = k, n = 2;
+      while (key in ids) key = `${k} ${n++}`;
+      ids[key] = v;
+    }
     try {
-      await send(`api/items/${item.id}`, { name: f.name.value.trim(), qty: f.qty.value ? Number(f.qty.value) : null, note: f.note.value.trim() }, "PATCH");
+      await send(`api/items/${item.id}`, { name: f.name.value.trim(), qty: f.qty.value ? Number(f.qty.value) : null, note: f.note.value.trim(), ids }, "PATCH");
       toast("Сохранил");
       await reload(item.id);
     } catch (err) { toast(err.message); }
@@ -924,12 +1585,15 @@ $("#t-tree").addEventListener("click", () => { if (S.view !== "unit") setView("u
 function devColor(e) {
   const st = bound(e).map(x => S.states[x]).filter(Boolean);
   const any = s => st.some(x => s.includes(x.state));
-  if (e.type === "light" || e.type === "lamp") return any(["on"]) ? COL.lightOn : COL.devOff;
+  if (e.type === "light" || e.type === "lamp" || e.type === "backlight") return any(["on"]) ? COL.lightOn : COL.devOff;
   if (["ac", "breezer", "thermostat"].includes(e.type)) return any(["heat"]) ? COL.heatOn : any(["cool", "fan_only", "auto", "dry"]) ? COL.coolOn : COL.devOff;
-  if (["tv", "speaker"].includes(e.type)) return any(["on", "playing", "paused", "idle"]) ? COL.mediaOn : COL.devOff;
+  if (e.type === "tv") return any(["on", "playing", "paused", "idle"]) ? 0x3d6fd6 : COL.devOff;
+  if (e.type === "speaker") return any(["on", "playing", "paused", "idle"]) ? COL.mediaOn : COL.devOff;
   if (e.type === "vacuum") return any(["cleaning", "returning"]) ? COL.vacOn : COL.vacuum;
   return COL.devOff;
 }
+// выключенный экран ТВ и станции — тёмный, остальные свои части (индикаторы, плафоны) — светлые
+const offColor = e => (e.type === "tv" ? 0x16181b : e.type === "speaker" ? 0x1b2233 : COL.devOff);
 function paintDevices(changed) {
   for (const e of S.devices.concat(S.data.entities.filter(x => x.kind === "device" && !x.geom))) {
     if (changed && !bound(e).includes(changed)) continue;
@@ -940,10 +1604,15 @@ function paintDevices(changed) {
       if (!m.isMesh) return;
       const base = m.userData.mat0 || m.material;
       if (!base.userData?.own) return;
-      base.color.setHex(c);
+      base.color.setHex(lit ? c : e.geom || e.type === "light" ? offColor(e) : COL.badge);
       base.emissive.setHex(lit ? c : 0x000000);
-      base.emissiveIntensity = lit ? 0.55 : 0;
+      base.emissiveIntensity = lit ? (e.type === "light" || e.type === "backlight" ? 1.1 : 0.55) : 0;
     });
+    const pool = o.userData.pool;                          // включённый свет — пятно на полу комнаты
+    if (pool) {
+      pool.material.uniforms.k.value = lit && e.type === "light" ? 0.5 : 0;
+      pool.visible = S.view === "unit" && pool.material.uniforms.k.value > 0;
+    }
   }
   // пылесос
   if (S.puck) {
@@ -956,6 +1625,7 @@ function paintDevices(changed) {
     }
     S.puck.visible = S.view === "unit" && !!pose;
   }
+  invalidate();
 }
 
 function status() {
@@ -977,12 +1647,12 @@ function connect() {
       S.states = m.states || {};
       S.ha = m.ha || S.ha;
       if (m.version != null && m.version !== S.ver) reload(S.sel?.id);
-      else { paintDevices(); if (S.sel) renderCard(S.sel); }
+      else { paintDevices(); if (S.sel) refreshHa(S.sel); }
       status();
     } else if (m.type === "state") {
       if (m.s) S.states[m.id] = m.s; else delete S.states[m.id];
       paintDevices(m.id);
-      if (S.sel && (bound(S.sel).includes(m.id))) renderCard(S.sel);
+      if (S.sel && (bound(S.sel).includes(m.id))) refreshHa(S.sel);
     } else if (m.type === "twin" && m.version !== S.ver) reload(S.sel?.id);
   };
   ws.onclose = () => { S.ha = { ...S.ha, connected: false }; status(); setTimeout(connect, 5000); };

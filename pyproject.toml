@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cherry-bim"
-version = "0.3.6"
+version = "0.4.0"
 description = "Открытое ядро цифрового двойника жилья: от квартала до полки в шкафу"
 readme = "README.md"
 license = { text = "MIT" }
@@ -34,7 +34,7 @@ Homepage = "https://github.com/beanbo/cherry-bim"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"cherrybim.server" = ["static/*.html", "static/*.css", "static/*.js", "static/vendor/*"]
+"cherrybim.server" = ["static/*.html", "static/*.css", "static/*.js", "static/vendor/*", "static/vendor/jsm/*/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

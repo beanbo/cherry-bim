@@ -97,8 +97,13 @@ def render_plan(twin: Twin, focus: str | None = None, audience: Privacy = Privac
             elif kind == Kind.wall:
                 d.polygon(px(p), fill=th["wall"])
             elif kind == Kind.opening:
-                col = th["door"] if e.type == "entrance_door" else th["window"]
-                d.polygon(px(p), fill=col)
+                if e.type in ("door", "entrance_door") and e.geom.type == "box":
+                    if e.type == "entrance_door":
+                        d.polygon(px(p), fill=th["door"])
+                    for line, lw in _swing(e, lambda q: px(pts(e, q))):   # полотно и дуга открывания, как на планах
+                        d.line(line, fill=th["wall"] if lw > 1 else th["muted"], width=lw * SS, joint="curve")
+                elif e.type != "passage":                 # проход без двери — пол идёт насквозь
+                    d.polygon(px(p), fill=th["window"])
 
     f_room = _font(int(26 * SS * min(1.0, s / (60 * SS) + 0.5)))
     for e, p in rooms:                   # подписи комнат — внутри многоугольника, у Г-образных тоже
@@ -219,6 +224,20 @@ def _footprint(e: Entity):
     if g.type == "point":
         return [(0.0, 0.0)]
     return None
+
+
+def _swing(e: Entity, to_px):
+    """Дверь на плане: открытое полотно и четверть окружности. Система проёма: X вдоль стены, дверь открывается
+    в сторону −Y; петли — props.render.hinge ("left"/"right", если смотреть с этой стороны)."""
+    import math
+    w, _, _ = e.geom.size
+    r = e.props.get("render")
+    hinge = r.get("hinge", "left") if isinstance(r, dict) else "left"
+    leaf = max(w - 0.08, 0.3)
+    hx, a0, a1 = (0.04, 0.0, -90.0) if hinge == "left" else (w - 0.04, 180.0, 270.0)
+    arc = [(hx + leaf * math.cos(math.radians(a0 + (a1 - a0) * i / 16)), leaf * math.sin(math.radians(a0 + (a1 - a0) * i / 16)))
+           for i in range(17)]
+    return [(to_px([(hx, 0.0), arc[-1]]), 2), (to_px(arc), 1)]
 
 
 def _descendants(twin: Twin, rid: str):

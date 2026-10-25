@@ -93,3 +93,34 @@ def storage_from_ofm(project: dict, ofm_path: str, parent: Entity, ns: str) -> l
             add(f"{skey}.gap{k}", name, typ, 0, 0, a - sec["z0"], sec["x1"] - sec["x0"], depth, c - a, sec_e.id,
                 level=k)
     return out
+
+
+def facade_from_ofm(project: dict, ofm_path: str) -> dict:
+    """Видимый фасад шкафа из OFM — для props.render: двери с петлями и ручками, нащельник.
+
+    Двери: {"x": [x0, x1], "z": [z0, z1], "hinge": "left" | "right", "handle": [x, z0, z1]}, метры в системе шкафа
+    (фасад — сторона −Y). Нащельник и пристенные планки — [x0, z0, x1, z1].
+    """
+    if ofm_path not in sys.path:
+        sys.path.insert(0, ofm_path)
+    from ofm import builder, model  # noqa: E402
+
+    p, _notes = model.normalize(project)
+    b = builder.build(p)
+    m = lambda v: round(v / 1000, 4)  # noqa: E731
+    handles = {q["name"]: q for q in b.parts if q["kind"] == "handle"}
+    doors, fillers = [], []
+    for q in b.parts:
+        if q["kind"] != "front":
+            continue
+        (x, _, z), (sx, _, sz) = q["pos"], q["size"]
+        if q.get("group") == "Дверь":
+            note = (q.get("cut") or {}).get("note", "")
+            d = {"x": [m(x), m(x + sx)], "z": [m(z), m(z + sz)], "hinge": "right" if "петли справа" in note else "left"}
+            h = handles.get("Ручка " + q["name"])
+            if h:
+                d["handle"] = [m(h["pos"][0] + h["size"][0] / 2), m(h["pos"][2]), m(h["pos"][2] + h["size"][2])]
+            doors.append(d)
+        elif q.get("group") in ("Нащельник", "Планка пристенная"):
+            fillers.append([m(x), m(z), m(x + sx), m(z + sz)])
+    return {"fronts": doors, "fillers": fillers}

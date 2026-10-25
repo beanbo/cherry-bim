@@ -176,3 +176,162 @@ def test_show_does_not_wait_past_mcp_limit(store, tmp_path, monkeypatch):
     srv.ha.call = slow_call
     res = asyncio.run(srv.show("ящик 2"))
     assert res["ok"] and res["status"] == "sent"
+
+
+def test_viewer_static_modules(client):
+    # просмотрщик: модели по типам, детали, материалы и модули three.js для света, теней и затенения углов
+    for path in ("app.js", "families.js", "kit.js", "materials.js", "vendor/jsm/postprocessing/GTAOPass.js",
+                 "vendor/jsm/environments/RoomEnvironment.js", "vendor/jsm/geometries/RoundedBoxGeometry.js"):
+        r = client.get(f"/static/{path}")
+        assert r.status_code == 200 and "javascript" in r.headers["content-type"], path
+
+
+def test_plan_png_draws_doors(store):
+    # двери с петлями рисуются полотном и дугой; картинка строится и для двери в фокусе
+    from cherrybim.plan import _swing, render_plan
+    door = store.twin.by_key["kv12.bedroom.door"]
+    lines = _swing(door, lambda q: q)
+    assert [w for _, w in lines] == [2, 1] and len(lines[1][0]) == 17
+    hinge, tip = lines[0][0]
+    assert abs(hinge[0] - (0.9 - 0.04)) < 1e-9 and tip[1] < 0          # петли справа, открывается в сторону −Y
+    assert render_plan(store.twin, door.id, size=(640, 360))[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_docs_file_link_and_copy(client, store, monkeypatch):
+    pdf = b"%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n2 0 obj << /Type /Page >> endobj\n%%EOF"
+    r = client.post("/api/docs", params={"to": "шкаф", "title": "Проект шкафа", "type": "project",
+                                         "filename": "Проект шкафа.pdf"}, content=pdf,
+                    headers={"Content-Type": "application/pdf"})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["copy"] and d["pages"] == 2 and d["ru"] == "проект, чертежи" and d["editable"]
+    f = client.get(f"/api/doc/{d['id']}")
+    assert f.status_code == 200 and f.content == pdf and f.headers["content-type"] == "application/pdf"
+    # ящик внутри шкафа видит документы шкафа как «у родителя»
+    up = client.get("/api/docs/ящик 2").json()
+    assert up["docs"] == [] and up["parent"]["name"] == "Шкаф" and up["parent"]["docs"][0]["name"] == "Проект шкафа"
+    # ссылка с копией: страница сохраняется HTML с <base>, открывается в песочнице
+    page = b"<html><head><title>Fridge manual</title></head><body>hello</body></html>"
+    monkeypatch.setattr("cherrybim.server.app.fetch", lambda url: (page, "text/html", url))
+    r = client.post("/api/docs", json={"to": "ящик 2", "url": "https://example.com/manual", "copy": True})
+    assert r.status_code == 200, r.text
+    link = r.json()
+    assert link["name"] == "Fridge manual" and link["type"] == "page" and link["copy"]
+    g = client.get(f"/api/doc/{link['id']}")
+    assert b'<base href="https://example.com/manual">' in g.content and g.headers["content-security-policy"] == "sandbox"
+    assert client.post("/api/docs", json={"to": "шкаф", "url": "file:///etc/passwd"}).status_code == 400
+    # копия не выходит за папку документов
+    doc = store.resolve(link["id"])
+    doc.props["file"] = "../items.twin.json"
+    assert client.get(f"/api/doc/{link['id']}").status_code == 404
+    assert client.delete(f"/api/docs/{d['id']}").json() == {"removed": "Проект шкафа"}
+    assert client.get(f"/api/doc/{d['id']}").status_code == 404
+
+
+def test_item_ids_hidden_from_search_and_voice(store):
+    e = store.add_item("Телефон Ани", "спальня")
+    store.update_item(e.id, ids={"IMEI": "356938035643809", "Серийный номер": "R58N"})
+    assert store.resolve("телефон").props["ids"]["IMEI"] == "356938035643809"
+    assert store.search("356938035643809") == []
+    srv = Server(store, HA(url="", token=""))
+    res = asyncio.run(srv.mcp.call_tool("find", {"query": "телефон"}))
+    text = (res[0] if isinstance(res, tuple) else res)[0].text
+    assert "Телефон Ани" in text and "356938035643809" not in text
+    store.add_doc("телефон", "Гарантия на телефон", type="warranty", url="https://example.com/w")
+    res = asyncio.run(srv.mcp.call_tool("documents", {"what": "телефон"}))
+    text = (res[0] if isinstance(res, tuple) else res)[0].text
+    assert "«Гарантия на телефон» (гарантия, ссылка https://example.com/w)" in text and "356938035643809" not in text
+    store.update_item(e.id, ids={})
+    assert "ids" not in store.resolve(e.id).props
+
+
+def _tool(srv, name, args):
+    res = asyncio.run(srv.mcp.call_tool(name, args))
+    return (res[0] if isinstance(res, tuple) else res)[0].text
+
+
+def test_docs_resolve_and_inheritance(store):
+    d = store.add_doc("шкаф", "Проект шкафа", type="project", url="https://example.com/p")
+    assert store.resolve("шкаф").name == "Шкаф"                  # документ не отнимает название у самого шкафа
+    # спросили о самом документе — он и есть ответ
+    r = store.docs_of(d.id)
+    assert r["of"]["name"] == "Шкаф" and [x["name"] for x in r["docs"]] == ["Проект шкафа"]
+    # проект, связанный с ящиком, — в своих документах ящика и не повторяется «у шкафа»
+    store.link_doc(d.id, "ящик 2")
+    r = store.docs_of("ящик 2")
+    assert [x["name"] for x in r["docs"]] == ["Проект шкафа"] and r["parent"] is None
+    # вещь в ящике — не часть шкафа: проекта шкафа у неё нет
+    store.add_item("Молоток", "ящик 2")
+    assert store.docs_of("молоток")["docs"] == [] and store.docs_of("молоток")["parent"] is None
+
+
+def test_remove_item_takes_its_documents(store):
+    e = store.add_item("Телефон Ани", "ящик 2")
+    store.add_doc(e.id, "Гарантия на телефон", type="warranty", url="https://example.com/w")
+    store.remove_item(e.id)
+    assert store.docs_of("ящик 2")["docs"] == []                  # гарантия не переехала к ящику
+    row = json.loads((store.data_dir / TRASH_FILE).read_text(encoding="utf-8").splitlines()[-1])
+    assert row["entity"]["name"] == "Телефон Ани" and row["docs"][0]["name"] == "Гарантия на телефон"
+
+
+def test_hidden_documents_stay_hidden(store):
+    from cherrybim.model import Privacy
+    d = store.add_doc("шкаф", "Чек на шкаф", type="receipt", url="https://example.com/r")
+    d.privacy = Privacy.secret
+    store._save()
+    srv = Server(store, HA(url="", token=""))
+    assert "Документов" not in _tool(srv, "find", {"query": "шкаф"})
+    assert store.docs_of("шкаф")["docs"] == []
+    with pytest.raises(StoreError):                               # и по id закрытое не находится
+        store.resolve(d.id)
+    assert "Чек" not in _tool(srv, "documents", {"what": d.id})
+
+
+def test_update_item_checks_before_changing(store):
+    e = store.add_item("Телефон", "спальня")
+    with pytest.raises(StoreError):
+        store.update_item(e.id, name="Новый", tags="техника")       # строка вместо списка сломала бы поиск
+    assert store.resolve(e.id).name == "Телефон" and store.search("телефон")
+    with pytest.raises(StoreError):
+        store.update_item(e.id, ids={"x" * 41: "1"})
+    store.update_item(e.id, ids={"IMEI": " 356938035643809 ", "MAC": None, "PIN": False})
+    assert store.resolve(e.id).props["ids"] == {"IMEI": "356938035643809"}
+
+
+def test_doc_copies_typed_by_content(client, store, monkeypatch):
+    pdf = b"%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n%%EOF"
+    monkeypatch.setattr("cherrybim.server.app.fetch", lambda url: (pdf, "application/octet-stream", url))
+    r = client.post("/api/docs", json={"to": "шкаф", "url": "https://example.com/download.php?id=1", "copy": True,
+                                       "type": "manual"})
+    d = r.json()
+    assert r.status_code == 200 and d["mime"] == "application/pdf" and d["type"] == "manual", r.text
+    g = client.get(f"/api/doc/{d['id']}")
+    assert g.headers["content-type"] == "application/pdf" and g.headers["content-disposition"].startswith("inline")
+    assert "content-security-policy" not in g.headers
+    snap = client.get("/api/twin").json()
+    assert next(e for e in snap["entities"] if e["id"] == d["id"])["copy"] is True
+    # .json из панели — файл, а не запрос к API; XML (может нести скрипт XHTML) — только скачать, в песочнице
+    j = client.post("/api/docs", params={"to": "шкаф", "title": "Настройки роутера", "filename": "router.json"},
+                    content=b'{"a": 1}', headers={"Content-Type": "application/json"})
+    assert j.status_code == 200, j.text
+    x = client.post("/api/docs", params={"to": "шкаф", "title": "Схема", "filename": "x.xml"}, headers={"Content-Type": "text/xml"},
+                    content=b'<x:html xmlns:x="http://www.w3.org/1999/xhtml"><x:script>alert(1)</x:script></x:html>')
+    g = client.get(f"/api/doc/{x.json()['id']}")
+    assert g.headers["content-disposition"].startswith("attachment") and g.headers["content-security-policy"] == "sandbox"
+    # пустой файл — ошибка, а не документ без копии и без ссылки
+    assert client.post("/api/docs", params={"to": "шкаф", "title": "Пусто", "filename": "a.pdf"}, content=b"").status_code == 400
+    assert client.post("/api/docs", content=b"[1, 2]", headers={"Content-Type": "application/json"}).status_code == 400
+
+
+def test_page_copies_utf8_and_fast():
+    import time
+    from cherrybim.docs import html_copy, html_utf8, title_of
+    raw = ('<html><head><meta charset="windows-1251"><title>Холодильник Atlant купить с доставкой</title></head>'
+           '<body>текст</body></html>').encode("cp1251")
+    page = html_utf8(raw)
+    assert title_of(page, "text/html") == "Холодильник Atlant" and "текст".encode() in page
+    assert b'charset="utf-8"' in page and b"windows-1251" not in page
+    t = time.time()                                               # раньше: минуты на такой странице
+    assert title_of(b"<title>" * 200_000, "text/html") is None
+    assert html_copy(b"<head" * 200_000, "https://example.com/").startswith(b'<meta charset="utf-8">')
+    assert time.time() - t < 2

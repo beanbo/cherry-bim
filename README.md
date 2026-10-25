@@ -36,6 +36,7 @@
   - GeoJSON (WGS84) для карт.
   - IFC4 через IfcOpenShell: квартал → дом → подъезд (`IfcBuilding`, PARTIAL) → этаж → квартира (`IfcSpace`, COMPLEX) → комнаты, мебель, ящики, отопление (`IfcDistributionSystem`).
   - JSON Schema и словарь типов (`schema/kinds.json`: подтип → русское название → класс IFC).
+- **Документы у вещей**: инструкции, проект и чертежи, чеки, гарантии, страницы магазина — со ссылкой и локальной копией (PDF, файл, копия страницы); закрытые номера вещи (IMEI, серийный) — вне поиска и голоса.
 - **Импорт мебели** из OpenFurnitureMaker (конструктор корпусной мебели): каждый ящик и отделение шкафа становятся местом хранения. Пакет `ofm` нужен на `sys.path`.
 
 ## Быстрый старт
@@ -64,7 +65,7 @@ python examples/demo/build_demo.py
 python -m cherrybim.server --packages examples/demo --data ./data --port 8099 --allow 127.0.0.1/32
 ```
 
-Откройте http://127.0.0.1:8099/: 3D-план (виды «Квартира», «Дом», «Квартал»), поиск, карточки, учёт вещей. По адресу `/mcp` тот же процесс отдаёт MCP-инструменты `find`, `contents`, `add_item`, `move_item`, `remove_item` и `show` — их можно подключить к голосовому ассистенту. `GET /api/plan.png?e=<место>` отдаёт 2D-план с подсвеченным местом. С `--show-script` план выводится на экран скриптом Home Assistant: поля `put` (путь в медиа), `zagolovok`, `podpis`. С переменными `HA_URL` и `HA_TOKEN` (или внутри аддона Home Assistant) на плане видны живые состояния привязанных сущностей. Устройство сервера — в [docs/DESIGN.md](docs/DESIGN.md#сервер-02).
+Откройте http://127.0.0.1:8099/: 3D-план (виды «Квартира», «Дом», «Квартал»), поиск, карточки, учёт вещей. Геометрия реалистичная, текстур нет: из габаритов и типа сущности строится узнаваемая вещь — кровать с изголовьем, окно с рамами и подоконником, дверь на петлях, кухня с фасадами и столешницей, унитаз, радиатор. Свет, мягкие тени и затенение углов делают картинку объёмной без единой картинки-текстуры. По адресу `/mcp` тот же процесс отдаёт MCP-инструменты `find`, `contents`, `add_item`, `move_item`, `remove_item` и `show` — их можно подключить к голосовому ассистенту. `GET /api/plan.png?e=<место>` отдаёт 2D-план с подсвеченным местом. С `--show-script` план выводится на экран скриптом Home Assistant: поля `put` (путь в медиа), `zagolovok`, `podpis`. С переменными `HA_URL` и `HA_TOKEN` (или внутри аддона Home Assistant) на плане видны живые состояния привязанных сущностей. Устройство сервера — в [docs/DESIGN.md](docs/DESIGN.md#сервер-02).
 
 ### Аддон Home Assistant
 
@@ -76,7 +77,8 @@ IFC: `pip install -e .[ifc]`, затем `from cherrybim.export_ifc import to_if
 
 ```
 src/cherrybim/    model (pydantic), twin, geo, kinds, export (GeoJSON), export_ifc, io_ofm
-  server/         сервер: store (вещи), ha (Home Assistant), app (API, MCP), static/ (просмотрщик)
+  server/         сервер: store (вещи), ha (Home Assistant), app (API, MCP), static/ (просмотрщик:
+                  app.js — сцена и интерфейс, families.js — модели по типам, kit.js — детали, materials.js)
 schema/           JSON Schema и словарь типов — генерируются tools/export_schema.py
 examples/demo/    выдуманный пример без реальных адресов
 ha-addon/         аддон Home Assistant (Supervisor, ingress)
@@ -96,6 +98,6 @@ tests/            pytest
 
 ## Лицензия
 
-MIT, см. [LICENSE](LICENSE). В `src/cherrybim/server/static/vendor/` лежит three.js 0.170.0 (MIT, © three.js authors).
+MIT, см. [LICENSE](LICENSE). В `src/cherrybim/server/static/vendor/` лежит three.js 0.170.0 (MIT, © three.js authors) и его модули из `examples/jsm`: постобработка (GTAO), окружение комнаты, скруглённые коробки, слияние геометрий.
 
 Если импортируете данные OpenStreetMap, на них действует ODbL: подпись «© OpenStreetMap contributors», а производная база распространяется на тех же условиях.

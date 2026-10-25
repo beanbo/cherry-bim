@@ -29,6 +29,15 @@ def ent(key, kind, name, parent=None, **kw) -> Entity:
     return Entity(id=eid(key), key=key, kind=kind, name=name, parent=eid(parent) if parent else None, **kw)
 
 
+def wall_box(x0, y0, x1, y1, z, h, front):
+    """Коробка по прямоугольнику плана и стороне, куда смотрит фасад ('-y', '+y', '+x', '-x'): X коробки — вдоль
+    фасада, фасад — её сторона −Y. Так задаются мебель у стен, сантехника, двери и окна."""
+    a, b = round(x1 - x0, 3), round(y1 - y0, 3)
+    pos, yaw, size = {"-y": ((x0, y0), 0, (a, b)), "+y": ((x1, y1), 180, (a, b)),
+                      "+x": ((x1, y0), 90, (b, a)), "-x": ((x0, y1), -90, (b, a))}[front]
+    return dict(placement=Placement(pos=(pos[0], pos[1], z), yaw=yaw), geom=Box(size=size + (h,)))
+
+
 def build() -> tuple[Package, Package]:
     demo = Source(origin="demo")
     K = [ent("kvartal", Kind.site, "Демо-квартал", type="quarter", src=demo),
@@ -74,7 +83,49 @@ def build() -> tuple[Package, Package]:
     F.append(ent("kv12.hall.manifold", Kind.mep, "Коллектор отопления", "kv12.hall", type="heating_manifold",
                  placement=Placement(pos=(3.8, 8.8, 0.3)), geom=Point(), aliases=["гребёнка"], src=demo))
     F.append(ent("kv12.bedroom.radiator", Kind.mep, "Радиатор", "kv12.bedroom", type="radiator",
-                 placement=Placement(pos=(6.5, 0.15, 0.1)), geom=Point(), aliases=["батарея"], src=demo))
+                 **wall_box(5.75, 0.03, 6.75, 0.13, 0.1, 0.5, "+y"), props={"render": {"style": "panel"}},
+                 aliases=["батарея"], src=demo))
+    # стены: наружные 0,3 м, перегородки 0,1 м; в проёмах — окна и двери (петли — если смотреть с той стороны,
+    # куда дверь открывается), цвета — в props.render
+    walls = [((-0.3, -0.3, 5.5, 0.0), True), ((7.0, -0.3, 9.3, 0.0), True), ((-0.3, 0.0, 0.0, 2.0), True),
+             ((-0.3, 3.5, 0.0, 9.3), True), ((9.0, 0.0, 9.3, 9.3), True), ((-0.3, 9.0, 1.2, 9.3), True),
+             ((2.1, 9.0, 9.0, 9.3), True), ((0.0, 5.95, 1.0, 6.05), False), ((1.9, 5.95, 3.95, 6.05), False),
+             ((3.95, 0.0, 4.05, 7.0), False), ((3.95, 7.9, 4.05, 9.0), False)]
+    for i, ((x0, y0, x1, y1), ext) in enumerate(walls):
+        F.append(ent(f"kv12.wall{i}", Kind.wall, "Стена", "kv12", type="exterior" if ext else "interior",
+                     geom=Extrusion(outline=[(x0, y0), (x1, y0), (x1, y1), (x0, y1)], height=2.6), src=demo))
+    F += [ent("kv12.bedroom.window", Kind.opening, "Окно спальни", "kv12.bedroom", type="window",
+              **wall_box(5.5, -0.3, 7.0, 0.0, 0.85, 1.4, "+y"), src=demo),
+          ent("kv12.kitchen.window", Kind.opening, "Окно кухни", "kv12.kitchen", type="window",
+              **wall_box(-0.3, 2.0, 0.0, 3.5, 0.85, 1.4, "+x"), src=demo),
+          ent("kv12.kitchen.door", Kind.opening, "Дверь в кухню", "kv12.kitchen", type="door",
+              **wall_box(1.0, 5.95, 1.9, 6.05, 0.0, 2.07, "-y"), props={"render": {"hinge": "left", "open": 90}}, src=demo),
+          ent("kv12.bedroom.door", Kind.opening, "Дверь в спальню", "kv12.bedroom", type="door",
+              **wall_box(3.95, 7.0, 4.05, 7.9, 0.0, 2.07, "+x"), props={"render": {"hinge": "right", "open": 90}}, src=demo),
+          ent("kv12.hall.entrance", Kind.opening, "Входная дверь", "kv12.hall", type="entrance_door",
+              **wall_box(1.2, 9.0, 2.1, 9.3, 0.0, 2.07, "-y"),
+              props={"render": {"hinge": "left", "colors": {"outside": "#4a4f57", "inside": "#f4f3ef"}}}, src=demo)]
+    # обстановка: кровать изголовьем к стене, кухня с мойкой и варочной; фасады кухни — места хранения
+    F.append(ent("kv12.bedroom.bed", Kind.furniture, "Кровать", "kv12.bedroom", type="bed",
+                 **wall_box(7.0, 3.0, 9.0, 4.6, 0.0, 0.5, "-x"), props={"render": {"colors": {"body": "#8e9aa6"}}}, src=demo))
+    F.append(ent("kv12.kitchen.base", Kind.furniture, "Кухонный гарнитур", "kv12.kitchen", type="kitchen_unit",
+                 **wall_box(0.2, 0.0, 2.6, 0.6, 0.0, 0.9, "+y"), props={"render": {"handles": "bar"}}, src=demo))
+    for key, name, typ, pos, size in [
+            ("cutlery", "Выдвижной для приборов", "drawer", (0.02, 0.02, 0.62), (0.56, 0.5, 0.18)),
+            ("pans", "Выдвижной для кастрюль", "drawer", (0.02, 0.02, 0.1), (0.56, 0.5, 0.5)),
+            ("sink", "Отделение под мойкой", "compartment", (0.6, 0.02, 0.1), (0.8, 0.5, 0.7)),
+            ("dishes", "Отделение для посуды", "compartment", (1.4, 0.02, 0.1), (1.0, 0.5, 0.7))]:
+        F.append(ent(f"kv12.kitchen.base.{key}", Kind.storage, name, "kv12.kitchen.base", type=typ,
+                     placement=Placement(pos=pos), geom=Box(size=size), src=demo))
+    F += [ent("kv12.kitchen.sink", Kind.mep, "Мойка", "kv12.kitchen", type="sink",
+              **wall_box(1.35, 0.05, 1.85, 0.5, 0.7, 0.2, "+y"), src=demo),
+          ent("kv12.kitchen.hob", Kind.device, "Варочная панель", "kv12.kitchen", type="hob",
+              **wall_box(0.4, 0.04, 0.99, 0.56, 0.9, 0.006, "+y"), src=demo)]
+    F.append(ent("kv12.finish.floor", Kind.finish, "Ламинат", "kv12", type="floor",
+                 props={"render": {"on": ["floor"], "colors": {"*": "#d9c8ad"}}},
+                 refs=[Ref(rel="finishes", to=eid(f"kv12.{r}")) for r in ("hall", "bedroom")], src=demo))
+    F.append(ent("kv12.finish.skirting", Kind.finish, "Плинтус", "kv12", type="skirting",
+                 refs=[Ref(rel="finishes", to=eid(f"kv12.{r}")) for r in ("hall", "bedroom", "kitchen")], src=demo))
     F.append(ent("kv12.heat_route", Kind.mep, "Трубы отопления в стяжке", "kv12", type="pipe_pair",
                  geom=Polyline(points=[(3.8, 8.8, -0.04), (4.3, 8.8, -0.04), (4.3, 0.3, -0.04), (6.5, 0.3, -0.04)],
                                diameter=0.016), src=Source(origin="demo", acc=0.5)))

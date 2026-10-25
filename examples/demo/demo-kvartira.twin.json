@@ -330,14 +330,24 @@
    "parent": "f3b98b10-feaf-55db-be2b-636d53ff6825",
    "placement": {
     "pos": [
-     6.5,
-     0.15,
+     6.75,
+     0.13,
      0.1
     ],
-    "yaw": 0.0
+    "yaw": 180.0
    },
    "geom": {
-    "type": "point"
+    "type": "box",
+    "size": [
+     1.0,
+     0.1,
+     0.5
+    ]
+   },
+   "props": {
+    "render": {
+     "style": "panel"
+    }
    },
    "src": {
     "from": "demo"
@@ -345,6 +355,820 @@
    "aliases": [
     "батарея"
    ]
+  },
+  {
+   "id": "e03c1407-1df7-5b2c-b7e5-755a64c90c5c",
+   "key": "kv12.wall0",
+   "kind": "wall",
+   "type": "exterior",
+   "name": "Стена",
+   "parent": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+   "geom": {
+    "type": "extrusion",
+    "outline": [
+     [
+      -0.3,
+      -0.3
+     ],
+     [
+      5.5,
+      -0.3
+     ],
+     [
+      5.5,
+      0.0
+     ],
+     [
+      -0.3,
+      0.0
+     ]
+    ],
+    "z0": 0.0,
+    "height": 2.6
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "ae2a15f3-4ef6-5474-b8a0-8b741859c719",
+   "key": "kv12.wall1",
+   "kind": "wall",
+   "type": "exterior",
+   "name": "Стена",
+   "parent": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+   "geom": {
+    "type": "extrusion",
+    "outline": [
+     [
+      7.0,
+      -0.3
+     ],
+     [
+      9.3,
+      -0.3
+     ],
+     [
+      9.3,
+      0.0
+     ],
+     [
+      7.0,
+      0.0
+     ]
+    ],
+    "z0": 0.0,
+    "height": 2.6
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "1e4c3b5c-dae1-544a-930d-44dae3e988d7",
+   "key": "kv12.wall2",
+   "kind": "wall",
+   "type": "exterior",
+   "name": "Стена",
+   "parent": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+   "geom": {
+    "type": "extrusion",
+    "outline": [
+     [
+      -0.3,
+      0.0
+     ],
+     [
+      0.0,
+      0.0
+     ],
+     [
+      0.0,
+      2.0
+     ],
+     [
+      -0.3,
+      2.0
+     ]
+    ],
+    "z0": 0.0,
+    "height": 2.6
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "5e3f11ca-3509-5c29-9378-69126d7ba400",
+   "key": "kv12.wall3",
+   "kind": "wall",
+   "type": "exterior",
+   "name": "Стена",
+   "parent": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+   "geom": {
+    "type": "extrusion",
+    "outline": [
+     [
+      -0.3,
+      3.5
+     ],
+     [
+      0.0,
+      3.5
+     ],
+     [
+      0.0,
+      9.3
+     ],
+     [
+      -0.3,
+      9.3
+     ]
+    ],
+    "z0": 0.0,
+    "height": 2.6
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "69b83834-c18f-5cbc-9bfd-42f52dfa7fea",
+   "key": "kv12.wall4",
+   "kind": "wall",
+   "type": "exterior",
+   "name": "Стена",
+   "parent": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+   "geom": {
+    "type": "extrusion",
+    "outline": [
+     [
+      9.0,
+      0.0
+     ],
+     [
+      9.3,
+      0.0
+     ],
+     [
+      9.3,
+      9.3
+     ],
+     [
+      9.0,
+      9.3
+     ]
+    ],
+    "z0": 0.0,
+    "height": 2.6
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "b4ec30aa-9555-5f21-8c34-d5d97891d58a",
+   "key": "kv12.wall5",
+   "kind": "wall",
+   "type": "exterior",
+   "name": "Стена",
+   "parent": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+   "geom": {
+    "type": "extrusion",
+    "outline": [
+     [
+      -0.3,
+      9.0
+     ],
+     [
+      1.2,
+      9.0
+     ],
+     [
+      1.2,
+      9.3
+     ],
+     [
+      -0.3,
+      9.3
+     ]
+    ],
+    "z0": 0.0,
+    "height": 2.6
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "382e45b6-3cb3-5c9e-9e61-7d7305303b5f",
+   "key": "kv12.wall6",
+   "kind": "wall",
+   "type": "exterior",
+   "name": "Стена",
+   "parent": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+   "geom": {
+    "type": "extrusion",
+    "outline": [
+     [
+      2.1,
+      9.0
+     ],
+     [
+      9.0,
+      9.0
+     ],
+     [
+      9.0,
+      9.3
+     ],
+     [
+      2.1,
+      9.3
+     ]
+    ],
+    "z0": 0.0,
+    "height": 2.6
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "a9af804c-ee7c-5997-a413-57339f0f9fe1",
+   "key": "kv12.wall7",
+   "kind": "wall",
+   "type": "interior",
+   "name": "Стена",
+   "parent": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+   "geom": {
+    "type": "extrusion",
+    "outline": [
+     [
+      0.0,
+      5.95
+     ],
+     [
+      1.0,
+      5.95
+     ],
+     [
+      1.0,
+      6.05
+     ],
+     [
+      0.0,
+      6.05
+     ]
+    ],
+    "z0": 0.0,
+    "height": 2.6
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "3d3cfc47-0862-5a3f-a8d0-b1783260eb35",
+   "key": "kv12.wall8",
+   "kind": "wall",
+   "type": "interior",
+   "name": "Стена",
+   "parent": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+   "geom": {
+    "type": "extrusion",
+    "outline": [
+     [
+      1.9,
+      5.95
+     ],
+     [
+      3.95,
+      5.95
+     ],
+     [
+      3.95,
+      6.05
+     ],
+     [
+      1.9,
+      6.05
+     ]
+    ],
+    "z0": 0.0,
+    "height": 2.6
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "25c71156-3962-52d3-95f3-eb6a96608ded",
+   "key": "kv12.wall9",
+   "kind": "wall",
+   "type": "interior",
+   "name": "Стена",
+   "parent": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+   "geom": {
+    "type": "extrusion",
+    "outline": [
+     [
+      3.95,
+      0.0
+     ],
+     [
+      4.05,
+      0.0
+     ],
+     [
+      4.05,
+      7.0
+     ],
+     [
+      3.95,
+      7.0
+     ]
+    ],
+    "z0": 0.0,
+    "height": 2.6
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "bb176f9f-dafc-5082-8db0-8cf6a819ee94",
+   "key": "kv12.wall10",
+   "kind": "wall",
+   "type": "interior",
+   "name": "Стена",
+   "parent": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+   "geom": {
+    "type": "extrusion",
+    "outline": [
+     [
+      3.95,
+      7.9
+     ],
+     [
+      4.05,
+      7.9
+     ],
+     [
+      4.05,
+      9.0
+     ],
+     [
+      3.95,
+      9.0
+     ]
+    ],
+    "z0": 0.0,
+    "height": 2.6
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "e87560f5-052c-50b3-9530-c11a310276e8",
+   "key": "kv12.bedroom.window",
+   "kind": "opening",
+   "type": "window",
+   "name": "Окно спальни",
+   "parent": "f3b98b10-feaf-55db-be2b-636d53ff6825",
+   "placement": {
+    "pos": [
+     7.0,
+     0.0,
+     0.85
+    ],
+    "yaw": 180.0
+   },
+   "geom": {
+    "type": "box",
+    "size": [
+     1.5,
+     0.3,
+     1.4
+    ]
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "a4dc6aa6-04c9-5a51-907f-53a1663ec610",
+   "key": "kv12.kitchen.window",
+   "kind": "opening",
+   "type": "window",
+   "name": "Окно кухни",
+   "parent": "2990f658-a3c1-542e-ae3b-896efd9e43dc",
+   "placement": {
+    "pos": [
+     0.0,
+     2.0,
+     0.85
+    ],
+    "yaw": 90.0
+   },
+   "geom": {
+    "type": "box",
+    "size": [
+     1.5,
+     0.3,
+     1.4
+    ]
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "214fe506-3bba-59fb-91a2-ec9d10eba5ca",
+   "key": "kv12.kitchen.door",
+   "kind": "opening",
+   "type": "door",
+   "name": "Дверь в кухню",
+   "parent": "2990f658-a3c1-542e-ae3b-896efd9e43dc",
+   "placement": {
+    "pos": [
+     1.0,
+     5.95,
+     0.0
+    ],
+    "yaw": 0.0
+   },
+   "geom": {
+    "type": "box",
+    "size": [
+     0.9,
+     0.1,
+     2.07
+    ]
+   },
+   "props": {
+    "render": {
+     "hinge": "left",
+     "open": 90
+    }
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "01c63780-b027-5d27-9057-49b7a3ead83a",
+   "key": "kv12.bedroom.door",
+   "kind": "opening",
+   "type": "door",
+   "name": "Дверь в спальню",
+   "parent": "f3b98b10-feaf-55db-be2b-636d53ff6825",
+   "placement": {
+    "pos": [
+     4.05,
+     7.0,
+     0.0
+    ],
+    "yaw": 90.0
+   },
+   "geom": {
+    "type": "box",
+    "size": [
+     0.9,
+     0.1,
+     2.07
+    ]
+   },
+   "props": {
+    "render": {
+     "hinge": "right",
+     "open": 90
+    }
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "5225e567-fe05-5f86-b0ca-d8a530b5953f",
+   "key": "kv12.hall.entrance",
+   "kind": "opening",
+   "type": "entrance_door",
+   "name": "Входная дверь",
+   "parent": "2f12307f-b6ef-5c1a-8a16-a60ed5842228",
+   "placement": {
+    "pos": [
+     1.2,
+     9.0,
+     0.0
+    ],
+    "yaw": 0.0
+   },
+   "geom": {
+    "type": "box",
+    "size": [
+     0.9,
+     0.3,
+     2.07
+    ]
+   },
+   "props": {
+    "render": {
+     "hinge": "left",
+     "colors": {
+      "outside": "#4a4f57",
+      "inside": "#f4f3ef"
+     }
+    }
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "4238a248-1f38-5754-bd52-4aed6f8523b2",
+   "key": "kv12.bedroom.bed",
+   "kind": "furniture",
+   "type": "bed",
+   "name": "Кровать",
+   "parent": "f3b98b10-feaf-55db-be2b-636d53ff6825",
+   "placement": {
+    "pos": [
+     7.0,
+     4.6,
+     0.0
+    ],
+    "yaw": -90.0
+   },
+   "geom": {
+    "type": "box",
+    "size": [
+     1.6,
+     2.0,
+     0.5
+    ]
+   },
+   "props": {
+    "render": {
+     "colors": {
+      "body": "#8e9aa6"
+     }
+    }
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "4972d080-9d11-5739-b94b-9af86abe12d1",
+   "key": "kv12.kitchen.base",
+   "kind": "furniture",
+   "type": "kitchen_unit",
+   "name": "Кухонный гарнитур",
+   "parent": "2990f658-a3c1-542e-ae3b-896efd9e43dc",
+   "placement": {
+    "pos": [
+     2.6,
+     0.6,
+     0.0
+    ],
+    "yaw": 180.0
+   },
+   "geom": {
+    "type": "box",
+    "size": [
+     2.4,
+     0.6,
+     0.9
+    ]
+   },
+   "props": {
+    "render": {
+     "handles": "bar"
+    }
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "f20a980a-82b5-5f31-812a-2c64cac959ed",
+   "key": "kv12.kitchen.base.cutlery",
+   "kind": "storage",
+   "type": "drawer",
+   "name": "Выдвижной для приборов",
+   "parent": "4972d080-9d11-5739-b94b-9af86abe12d1",
+   "placement": {
+    "pos": [
+     0.02,
+     0.02,
+     0.62
+    ],
+    "yaw": 0.0
+   },
+   "geom": {
+    "type": "box",
+    "size": [
+     0.56,
+     0.5,
+     0.18
+    ]
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "c82e6758-caf0-5d35-8f45-f7d73ba7668e",
+   "key": "kv12.kitchen.base.pans",
+   "kind": "storage",
+   "type": "drawer",
+   "name": "Выдвижной для кастрюль",
+   "parent": "4972d080-9d11-5739-b94b-9af86abe12d1",
+   "placement": {
+    "pos": [
+     0.02,
+     0.02,
+     0.1
+    ],
+    "yaw": 0.0
+   },
+   "geom": {
+    "type": "box",
+    "size": [
+     0.56,
+     0.5,
+     0.5
+    ]
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "e018b0de-3e86-5dbc-b3ca-1aebd103d799",
+   "key": "kv12.kitchen.base.sink",
+   "kind": "storage",
+   "type": "compartment",
+   "name": "Отделение под мойкой",
+   "parent": "4972d080-9d11-5739-b94b-9af86abe12d1",
+   "placement": {
+    "pos": [
+     0.6,
+     0.02,
+     0.1
+    ],
+    "yaw": 0.0
+   },
+   "geom": {
+    "type": "box",
+    "size": [
+     0.8,
+     0.5,
+     0.7
+    ]
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "9ad82826-7023-59be-8cd5-e70dc4d3db3d",
+   "key": "kv12.kitchen.base.dishes",
+   "kind": "storage",
+   "type": "compartment",
+   "name": "Отделение для посуды",
+   "parent": "4972d080-9d11-5739-b94b-9af86abe12d1",
+   "placement": {
+    "pos": [
+     1.4,
+     0.02,
+     0.1
+    ],
+    "yaw": 0.0
+   },
+   "geom": {
+    "type": "box",
+    "size": [
+     1.0,
+     0.5,
+     0.7
+    ]
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "a0ac503b-32e3-5e90-951f-e1a7f760c441",
+   "key": "kv12.kitchen.sink",
+   "kind": "mep",
+   "type": "sink",
+   "name": "Мойка",
+   "parent": "2990f658-a3c1-542e-ae3b-896efd9e43dc",
+   "placement": {
+    "pos": [
+     1.85,
+     0.5,
+     0.7
+    ],
+    "yaw": 180.0
+   },
+   "geom": {
+    "type": "box",
+    "size": [
+     0.5,
+     0.45,
+     0.2
+    ]
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "754d160f-6e36-56dd-acd6-1698f7ac1bd7",
+   "key": "kv12.kitchen.hob",
+   "kind": "device",
+   "type": "hob",
+   "name": "Варочная панель",
+   "parent": "2990f658-a3c1-542e-ae3b-896efd9e43dc",
+   "placement": {
+    "pos": [
+     0.99,
+     0.56,
+     0.9
+    ],
+    "yaw": 180.0
+   },
+   "geom": {
+    "type": "box",
+    "size": [
+     0.59,
+     0.52,
+     0.006
+    ]
+   },
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "44a88b35-d184-5032-bf0a-549d181fd139",
+   "key": "kv12.finish.floor",
+   "kind": "finish",
+   "type": "floor",
+   "name": "Ламинат",
+   "parent": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+   "props": {
+    "render": {
+     "on": [
+      "floor"
+     ],
+     "colors": {
+      "*": "#d9c8ad"
+     }
+    }
+   },
+   "refs": [
+    {
+     "rel": "finishes",
+     "to": "2f12307f-b6ef-5c1a-8a16-a60ed5842228"
+    },
+    {
+     "rel": "finishes",
+     "to": "f3b98b10-feaf-55db-be2b-636d53ff6825"
+    }
+   ],
+   "src": {
+    "from": "demo"
+   }
+  },
+  {
+   "id": "1b90aa8a-266b-589a-9e09-12d84b716605",
+   "key": "kv12.finish.skirting",
+   "kind": "finish",
+   "type": "skirting",
+   "name": "Плинтус",
+   "parent": "a667c3c3-249d-5a41-8c6a-f965dc4df9c9",
+   "refs": [
+    {
+     "rel": "finishes",
+     "to": "2f12307f-b6ef-5c1a-8a16-a60ed5842228"
+    },
+    {
+     "rel": "finishes",
+     "to": "f3b98b10-feaf-55db-be2b-636d53ff6825"
+    },
+    {
+     "rel": "finishes",
+     "to": "2990f658-a3c1-542e-ae3b-896efd9e43dc"
+    }
+   ],
+   "src": {
+    "from": "demo"
+   }
   },
   {
    "id": "758a112f-a3ce-5897-be3e-b092dd781939",

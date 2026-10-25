@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """Хранилище сервера: пакеты двойника только для чтения + пакет вещей, который правится.
 
-Пакеты (*.twin.json) лежат в packages_dir и меняются только пересборкой. Вещи (kind item)
-живут в data_dir/items.twin.json: их добавляют, переносят и удаляют через API, MCP и голос.
+Пакеты (*.twin.json) лежат в packages_dir и меняются только пересборкой. Вещи (kind item) и документы,
+добавленные из просмотрщика (kind document), живут в data_dir/items.twin.json: их добавляют, переносят и
+удаляют через API, MCP и голос. Файлы документов — в docs_dir (по умолчанию data_dir/docs), пакет хранит путь.
 Запись атомарная (временный файл + замена), каждая правка поднимает version.
 """
 from __future__ import annotations
@@ -14,8 +15,9 @@ import time
 import uuid
 from pathlib import Path
 
+from ..docs import DOC_TYPES, INHERITED, DocError, mime_of, pdf_pages, resolve_file, store_file
 from ..kinds import lookup
-from ..model import Entity, Kind, Package, Privacy, Source
+from ..model import Entity, Kind, Package, Privacy, Ref, Source
 from ..twin import Twin
 
 ITEMS_FILE = "items.twin.json"
@@ -28,12 +30,15 @@ class StoreError(ValueError):
 
 
 class Store:
-    def __init__(self, packages_dir: str | Path, data_dir: str | Path, audience: Privacy = Privacy.household):
+    def __init__(self, packages_dir: str | Path, data_dir: str | Path, audience: Privacy = Privacy.household,
+                 docs_dir: str | Path | None = None):
         self.packages_dir = Path(packages_dir)
         self.data_dir = Path(data_dir)
+        self.docs_dir = Path(docs_dir) if docs_dir else self.data_dir / "docs"
         self.audience = audience
         self.lock = threading.RLock()
         self.version = 0
+        self.visible: set[str] = set()   # id всего, что видит аудитория; пересчитывается в _rebuild
         self.listeners: list = []        # функции без аргументов: зовутся после каждой правки
         self.reload()
 
@@ -87,6 +92,16 @@ class Store:
 
     def _rebuild(self) -> None:
         self.twin = Twin(self.base + [self.items])
+        vis = self.twin.visible_to(self.audience)
+        self.visible = {e.id for e in vis}
+        # id сущности → документы: дети вида document и связи documents. Только видимые аудитории: иначе find
+        # сказал бы голосом «документов: 1» про закрытый чек, которого documents не покажет
+        self.docs_by: dict[str, list[Entity]] = {}
+        for d in vis:
+            if d.kind != Kind.document:
+                continue
+            for t in {d.parent, *(r.to for r in d.refs if r.rel == "documents")} - {None}:
+                self.docs_by.setdefault(t, []).append(d)
         self.version += 1
 
     def _save(self) -> None:
@@ -117,8 +132,10 @@ class Store:
                 d = e.model_dump(mode="json", by_alias=True, exclude_none=True)
                 d["m"] = t.matrix(e.id)
                 d["path"] = t.path(e.id)
-                d["editable"] = e.kind == Kind.item and t.pkg_of[e.id] is self.items
+                d["editable"] = e.kind in (Kind.item, Kind.document) and t.pkg_of[e.id] is self.items
                 d["ru"] = lookup(e.kind, e.type)[0]
+                if e.kind == Kind.document:      # копия правда лежит в папке документов (пакет могли выложить раньше)
+                    d["copy"] = bool(e.props.get("file")) and self._copy_exists(e.props["file"])
                 ents.append(d)
             return {"version": self.version, "georef": t.georef.model_dump() if t.georef else None,
                     "packages": [{"id": p.id, "name": p.name, "root": p.root} for p in self.base],
@@ -163,7 +180,7 @@ class Store:
         with self.lock:
             self._check_items_file()
             e = self.twin.by_id.get(ref) or self.twin.by_key.get(ref)
-            if e is not None and (not kinds or e.kind in kinds):
+            if e is not None and e.id in self.visible and (not kinds or e.kind in kinds):   # закрытое и по id не найти
                 return e
             ranked = [(s, e) for s, e in self.twin.rank(ref, self.audience, complete=True)
                       if not kinds or e.kind in kinds]
@@ -171,19 +188,23 @@ class Store:
                 near = [e.name for s, e in self.twin.rank(ref, self.audience) if not kinds or e.kind in kinds][:3]
                 raise StoreError(f"не нашёл «{ref}»" + (f"; похожие: {', '.join(near)}" if near else ""))
             ties = [e for s, e in ranked if s == ranked[0][0]]
+            if not kinds and len(ties) > 1:      # «шкаф» — сам шкаф, а не «Проект шкафа»
+                ties = [e for e in ties if e.kind != Kind.document] or ties
             if len(ties) > 1:
                 raise StoreError("уточни, какой именно: " + "; ".join(self.short_path(e.id) for e in ties[:5]))
-            return ranked[0][1]
+            return ties[0]
 
     def contents(self, ref: str) -> dict:
-        """Что внутри места: дочерние места хранения и вещи (вещи — со вложенными)."""
+        """Что внутри места: дочерние места хранения и вещи (вещи — со вложенными). Только видимое аудитории."""
         with self.lock:
             place = self.resolve(ref)
-            kids = self.twin.children(place.id)
+            kids = [k for k in self.twin.children(place.id) if k.id in self.visible]
 
             def items_under(pid: str, depth: int = 0) -> list[dict]:
                 res = []
                 for k in self.twin.children(pid):
+                    if k.id not in self.visible:
+                        continue
                     if k.kind == Kind.item:
                         res.append({"id": k.id, "name": k.name, "props": k.props, "short": self.short_path(k.id)})
                     if depth < 6 and k.kind in (Kind.storage, Kind.furniture, Kind.item):
@@ -194,6 +215,121 @@ class Store:
                     "places": [{"id": k.id, "name": k.name, "kind": k.kind.value} for k in kids
                                if k.kind in (Kind.storage, Kind.furniture)],
                     "items": items_under(place.id)}
+
+    # ── документы ────────────────────────────────────────────────────────────
+    def doc_info(self, d: Entity) -> dict:
+        p = d.props
+        return {"id": d.id, "name": d.name, "type": d.type, "ru": DOC_TYPES.get(d.type or "", "документ"),
+                "url": p.get("url"), "copy": bool(p.get("file")) and self._copy_exists(p["file"]),
+                "mime": p.get("mime"), "size": p.get("size"), "pages": p.get("pages"), "saved_at": p.get("saved_at"),
+                "note": p.get("note"), "editable": self.twin.pkg_of[d.id] is self.items}
+
+    def _copy_exists(self, rel: str) -> bool:
+        try:
+            resolve_file(self.docs_dir, rel)
+            return True
+        except DocError:
+            return False
+
+    def docs_of(self, ref: str) -> dict:
+        """Документы сущности и ближайшего родителя с документами на всё целое (у ящика кухни — проект кухни;
+        чеки и страницы покупок родителя — только у него самого). Вещь, которая лежит в шкафу, — не часть шкафа:
+        проект шкафа у неё не показывается. Спросили о самом документе — он и есть ответ."""
+        with self.lock:
+            try:                                 # «телефон» — сам телефон, а не «Гарантия на телефон»
+                e = self.resolve(ref, set(Kind) - {Kind.document})
+            except StoreError:
+                e = self.resolve(ref)
+            if e.kind == Kind.document:          # «гарантия на телефон», id из find
+                of = self.twin.by_id.get(e.parent) or e
+                return {"of": {"id": of.id, "name": of.name, "short": self.short_path(of.id)},
+                        "docs": [self.doc_info(e)], "parent": None}
+
+            def mine(eid: str) -> list[Entity]:
+                return [d for d in self.docs_by.get(eid, []) if d.id != eid]
+            own = mine(e.id)
+            seen = {d.id for d in own}           # проект кухни, связанный с ящиком, — один раз, а не ещё и «у кухни»
+            whole = lambda eid: [d for d in mine(eid) if d.type in INHERITED and d.id not in seen]  # noqa: E731
+            up = None if e.kind == Kind.item else next(
+                ({"id": a.id, "name": a.name, "docs": [self.doc_info(d) for d in whole(a.id)]}
+                 for a in self.twin.ancestors(e.id) if whole(a.id)), None)
+            return {"of": {"id": e.id, "name": e.name, "short": self.short_path(e.id)},
+                    "docs": [self.doc_info(d) for d in own], "parent": up}
+
+    def doc_file(self, ref: str) -> tuple[Path, str, str]:
+        """Локальная копия документа: (путь, тип по расширению, имя для скачивания). Только видимое аудитории."""
+        with self.lock:
+            self._check_items_file()
+            d = self.twin.by_id.get(ref) or self.twin.by_key.get(ref)
+            if d is None or d.kind != Kind.document or d.id not in self.visible:
+                raise StoreError("нет такого документа")
+            rel = d.props.get("file")
+            if not rel:
+                raise StoreError(f"у «{d.name}» нет локальной копии")
+            try:
+                path = resolve_file(self.docs_dir, rel)
+            except DocError as err:
+                raise StoreError(f"копии «{d.name}» нет в папке документов") from err
+            return path, mime_of(path), Path(rel).name
+
+    def add_doc(self, to: str, title: str, type: str = "note", url: str | None = None, data: bytes | None = None,
+                filename: str | None = None, note: str | None = None, by: str | None = None,
+                origin: str = "manual", extra: dict | None = None, mime: str | None = None) -> Entity:
+        """Документ к сущности из любого пакета: ссылка, файл или оба. Запись — в пакет вещей.
+        mime — тип, который заявил браузер или сайт; верится, только если содержимое его не опровергает."""
+        title = (title or "").strip() or (filename or "").strip() or (url or "").strip()
+        if not title:
+            raise StoreError("нужно название, файл или ссылка")
+        if type not in DOC_TYPES:
+            raise StoreError("тип документа: " + ", ".join(DOC_TYPES))
+        if url and not url.lower().startswith(("http://", "https://")):
+            raise StoreError("ссылка должна начинаться с http:// или https://")
+        with self.lock:
+            target = self.resolve(to)
+            props = {k: v for k, v in (("url", url), ("note", note), ("by", by),
+                                       ("added_at", time.strftime("%Y-%m-%d %H:%M"))) if v not in (None, "")}
+            if data is not None:
+                try:
+                    props.update(store_file(self.docs_dir, data, filename or title, kind=mime))
+                except DocError as err:
+                    raise StoreError(str(err)) from err
+                if pdf_pages(data):
+                    props["pages"] = pdf_pages(data)
+            props.update(extra or {})
+            e = Entity(id=str(uuid.uuid4()), kind=Kind.document, type=type, name=title[:200], parent=target.id,
+                       props=props, src=Source(origin=origin, at=time.strftime("%Y-%m-%d")))
+            self.items.entities.append(e)
+            self._save()
+            return e
+
+    def link_doc(self, doc: str, to: str) -> Entity:
+        """Документ относится ещё и к другой сущности (связь documents)."""
+        with self.lock:
+            d = self._own_doc(doc)
+            t = self.resolve(to)
+            if t.id != d.parent and not any(r.rel == "documents" and r.to == t.id for r in d.refs):
+                d.refs.append(Ref(rel="documents", to=t.id))
+                self._save()
+            return d
+
+    def _own_doc(self, ref: str) -> Entity:
+        e = self.resolve(ref, {Kind.document})
+        if self.twin.pkg_of[e.id] is not self.items:
+            raise StoreError(f"«{e.name}» записан в пакете только для чтения")
+        return e
+
+    def remove_doc(self, ref: str, by: str | None = None) -> str:
+        """Убрать документ из учёта: строка уходит в trash.jsonl, файл копии остаётся в папке документов."""
+        with self.lock:
+            d = self._own_doc(ref)
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            row = {"removed_at": time.strftime("%Y-%m-%d %H:%M"), "by": by, "path": self.twin.path(d.id),
+                   "entity": d.model_dump(mode="json", by_alias=True, exclude_none=True)}
+            with open(self.data_dir / TRASH_FILE, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+            self.items.entities = [k for k in self.items.entities if k.id != d.id]
+            self._save()
+            return d.name
 
     # ── правка вещей ─────────────────────────────────────────────────────────
     def _own_item(self, ref: str) -> Entity:
@@ -231,32 +367,73 @@ class Store:
             return e
 
     def update_item(self, item: str, **fields) -> Entity:
+        """Поправить вещь. Сначала проверяется всё, потом меняется: кривой запрос не оставит полуправку в памяти
+        (а строка вместо списка в tags сломала бы поиск и чтение items.twin.json)."""
         with self.lock:
             e = self._own_item(item)
-            for k in ("name", "tags", "aliases"):
+            new = {}
+            if fields.get("name") is not None:
+                if not isinstance(fields["name"], str) or not fields["name"].strip():
+                    raise StoreError("название — непустая строка")
+                new["name"] = fields["name"].strip()
+            for k in ("tags", "aliases"):
                 if fields.get(k) is not None:
-                    setattr(e, k, fields[k])
+                    if not isinstance(fields[k], list) or not all(isinstance(x, str) for x in fields[k]):
+                        raise StoreError(f"{k} — список строк")
+                    new[k] = fields[k]
+            ids = None
+            if "ids" in fields:                  # закрытые номера: IMEI, серийный, MAC — не в поиск и не голосом
+                if not isinstance(fields["ids"] or {}, dict):
+                    raise StoreError("номера — словарь «название: номер»")
+                ids = {}
+                for k, v in (fields["ids"] or {}).items():
+                    k, v = str(k).strip(), (v.strip() if isinstance(v, str) else "")   # null, false — стереть
+                    if not k or not v:
+                        continue
+                    if len(k) > 40 or len(v) > 120:
+                        raise StoreError(f"номер «{k[:40]}»: название до 40 знаков, номер до 120")
+                    ids[k] = v
+            for k, v in new.items():
+                setattr(e, k, v)
             for k in ("qty", "note"):
                 if k in fields:
                     if fields[k] in (None, ""):
                         e.props.pop(k, None)
                     else:
                         e.props[k] = fields[k]
+            if ids:
+                e.props["ids"] = ids
+            elif ids is not None:
+                e.props.pop("ids", None)
             self._save()
             return e
 
     def remove_item(self, item: str, by: str | None = None) -> str:
-        """Вычеркнуть вещь. Запись не пропадает: строка уходит в trash.jsonl, её можно вернуть."""
+        """Вычеркнуть вещь. Запись не пропадает: строка уходит в trash.jsonl, её можно вернуть. Вещи из неё
+        остаются на месте вещи; её документы (гарантия, чек) уходят в ту же строку корзины, а не к шкафу —
+        кроме тех, что относятся ещё к чему-то: те переезжают туда."""
         with self.lock:
             e = self._own_item(item)
-            inside = [k for k in self.items.entities if k.parent == e.id]
-            for k in inside:                      # содержимое коробки остаётся там, где стояла коробка
-                k.parent = e.parent
+            docs = []
+            for k in self.items.entities:
+                if k.parent != e.id:
+                    continue
+                if k.kind != Kind.document:      # содержимое коробки остаётся там, где стояла коробка
+                    k.parent = e.parent
+                    continue
+                also = [r for r in k.refs if r.rel == "documents" and r.to != e.id and r.to in self.twin.by_id]
+                if also:
+                    k.parent = also[0].to
+                    k.refs.remove(also[0])
+                else:
+                    docs.append(k)
             self.data_dir.mkdir(parents=True, exist_ok=True)
+            dump = lambda x: x.model_dump(mode="json", by_alias=True, exclude_none=True)  # noqa: E731
             row = {"removed_at": time.strftime("%Y-%m-%d %H:%M"), "by": by, "path": self.twin.path(e.id),
-                   "entity": e.model_dump(mode="json", by_alias=True, exclude_none=True)}
+                   "entity": dump(e), **({"docs": [dump(d) for d in docs]} if docs else {})}
             with open(self.data_dir / TRASH_FILE, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(row, ensure_ascii=False) + "\n")
-            self.items.entities = [k for k in self.items.entities if k.id != e.id]
+            gone = {e.id, *(d.id for d in docs)}
+            self.items.entities = [k for k in self.items.entities if k.id not in gone]
             self._save()
             return e.name

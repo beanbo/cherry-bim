@@ -5,8 +5,9 @@
 
 Один процесс отдаёт:
 - /            просмотрщик (static/), относительные адреса — работает и под ingress HA;
-- /api/...     двойник, поиск, вещи, живые состояния HA, свет и пылесос, фото → вещи;
-- /mcp         MCP (streamable HTTP, без сессий): найти, что внутри, положить, переложить, вычеркнуть.
+- /api/...     двойник, поиск, вещи, документы (ссылки и локальные копии), живые состояния HA, свет и пылесос,
+               фото → вещи;
+- /mcp         MCP (streamable HTTP, без сессий): найти, что внутри, положить, переложить, вычеркнуть, документы.
 Вход только с адресов из --allow: под ingress это Supervisor и ядро HA.
 """
 from __future__ import annotations
@@ -23,6 +24,7 @@ import time
 import uuid
 import warnings
 from pathlib import Path
+from urllib.parse import quote
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
@@ -33,6 +35,7 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from ..docs import DOC_TYPES, INHERITED, DocError, fetch, html_copy, sniff, title_of
 from ..kinds import lookup
 from ..model import Kind, Privacy
 from ..plan import render_plan
@@ -44,6 +47,10 @@ STATIC = Path(__file__).parent / "static"
 TOGGLE_DOMAINS = {"light", "switch", "fan"}          # что можно щёлкать из просмотрщика; замков тут нет
 DEFAULT_ALLOW = "127.0.0.1/32,::1/128,172.30.32.1/32,172.30.32.2/32"   # аддон HA: ядро и Supervisor (ingress)
 MAX_PHOTO = 12 * 2 ** 20
+MAX_DOC = 50 * 2 ** 20
+# копии, которые открываются во вкладке; остальное отдаётся только на скачивание (XML, офисные файлы, неизвестное)
+DOC_INLINE = {"application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp", "text/plain", "text/html",
+              "image/svg+xml"}
 SHOW_WAIT = 3.0       # MCP-клиент HA обрывает вызов раньше 5 с (проверено 23.10.2026: 5,1 с — ошибка)
 REL_RU = {"finishes": "где", "serves": "обслуживает", "feeds": "питает", "controls": "управляет", "supplied_by": "от"}
 
@@ -170,7 +177,9 @@ class Server:
         snap["ha"] = self.ha_status()
         snap["features"] = {"photos": bool(self.media_dir and self.ai_task and self.ha.enabled),
                             "vacuum": bool(self.vacuum and self.ha.enabled), "toggle": self.ha.enabled,
-                            "show": self.can_show}
+                            "show": self.can_show, "docs": True}
+        snap["doc_types"] = DOC_TYPES
+        snap["doc_inherited"] = sorted(INHERITED)
         snap["states"] = self.states()
         return JSONResponse(snap)
 
@@ -193,7 +202,7 @@ class Server:
         ref = request.path_params["ref"]
 
         def patch():
-            e = self.store.update_item(ref, **{k: body[k] for k in ("name", "qty", "note", "tags", "aliases")
+            e = self.store.update_item(ref, **{k: body[k] for k in ("name", "qty", "note", "tags", "aliases", "ids")
                                                if k in body})
             if body.get("place"):
                 e = self.store.move_item(e.id, body["place"], by=by)
@@ -247,6 +256,66 @@ class Server:
         except HAError as e:
             return JSONResponse({"error": str(e)}, status_code=502)
         return JSONResponse({"ok": True})
+
+    # ── документы ────────────────────────────────────────────────────────────
+    async def api_doc_file(self, request: Request):
+        """Локальная копия документа. Под ingress она открывается с адреса самого HA, поэтому ничто из копии не
+        должно выполняться: страница и SVG — в песочнице (скрипты не запускаются, чужой источник), PDF, картинки
+        и текст — как есть, всё остальное — только скачать."""
+        try:
+            path, mime, name = self.store.doc_file(request.path_params["ref"])
+        except StoreError as e:
+            return JSONResponse({"error": str(e)}, status_code=404)
+        inline = mime in DOC_INLINE and not request.query_params.get("dl")
+        headers = {"Content-Disposition": f"{'inline' if inline else 'attachment'}; filename*=UTF-8''{quote(name)}",
+                   "X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=3600"}
+        if mime != "application/pdf":                    # встроенный просмотрщик PDF в песочнице не открывается
+            headers["Content-Security-Policy"] = "sandbox"
+        return FileResponse(path, media_type=mime, headers=headers)
+
+    async def api_docs_of(self, request: Request):
+        return self._guard(lambda: self.store.docs_of(request.path_params["ref"]))
+
+    async def api_doc_add(self, request: Request):
+        """Добавить документ: тело — файл (тип в Content-Type, имя в ?filename=) или JSON {to, title, type, url,
+        note, copy}. copy — скачать копию по ссылке (PDF и картинки как есть, страницу — HTML-копией)."""
+        q = request.query_params
+        ctype = request.headers.get("content-type", "").split(";")[0].strip().lower()
+        if ctype == "application/json" and "filename" not in q:     # файл .json из панели — это файл, а не запрос
+            try:
+                body = await request.json()
+            except ValueError:
+                body = None
+            if not isinstance(body, dict):
+                return JSONResponse({"error": "нужен JSON-объект {to, title, type, url, copy}"}, status_code=400)
+            data, filename, mime = None, None, None
+        else:
+            data = await request.body()
+            if len(data) > MAX_DOC:
+                return JSONResponse({"error": f"файл больше {MAX_DOC // 2 ** 20} МБ"}, status_code=400)
+            body, filename, mime = dict(q), q.get("filename") or None, ctype or None
+            if filename and not data:
+                return JSONResponse({"error": "пустой файл"}, status_code=400)
+            data = data or None                                       # ссылка параметрами, без тела
+        to, url = body.get("to", ""), (str(body.get("url") or "")).strip() or None
+        title, extra = str(body.get("title") or "").strip(), {}
+        if not data and url and str(body.get("copy", "")).lower() in ("1", "true", "yes", "on"):
+            try:
+                got, kind, final = await asyncio.to_thread(fetch, url)
+            except DocError as e:
+                return JSONResponse({"error": str(e)}, status_code=502)
+            kind = sniff(got, kind) or kind                           # PDF, который сайт отдал как text/html
+            if kind == "text/html":
+                title = title or title_of(got, kind) or ""
+                got = html_copy(got, final)
+            data, filename, mime = got, filename or _name_from(final), kind
+            extra["copy_of"] = final
+        return self._guard(lambda: self.store.doc_info(self.store.add_doc(
+            to, title, type=body.get("type") or ("page" if url else "note"), url=url, data=data,
+            filename=filename, note=body.get("note"), by=_user(request), extra=extra, mime=mime)))
+
+    async def api_doc_delete(self, request: Request):
+        return self._guard(lambda: {"removed": self.store.remove_doc(request.path_params["ref"], by=_user(request))})
 
     async def api_photo(self, request: Request):
         """Фото места хранения → список вещей от ai_task (сохранять их будет пользователь)."""
@@ -434,6 +503,27 @@ class Server:
             return "Не получилось показать: " + str(r.get("error") or "нет ответа")
 
         @mcp.tool()
+        def documents(what: str) -> str:
+            """Какие документы есть у вещи, мебели, техники или комнаты: инструкции, проект и чертежи, чеки,
+            гарантии, договоры, страницы магазина. Для «где инструкция к посудомойке», «есть ли чертежи кухни»,
+            «гарантия на холодильник». what — словами или id из find. Закрытые номера (IMEI, серийные) не выдаются."""
+            try:
+                r = st.docs_of(what)
+            except StoreError as err:
+                return str(err)
+
+            def line(d: dict) -> str:
+                meta = [d["ru"]] + ([f"{d['pages']} стр."] if d.get("pages") else []) + \
+                       (["есть копия"] if d["copy"] else []) + ([f"ссылка {d['url']}"] if d.get("url") else [])
+                return f"«{d['name']}» ({', '.join(meta)})"
+            out = []
+            if r["docs"]:
+                out.append(f"Документы «{r['of']['name']}»: " + "; ".join(line(d) for d in r["docs"]))
+            if r["parent"]:
+                out.append(f"У «{r['parent']['name']}»: " + "; ".join(line(d) for d in r["parent"]["docs"]))
+            return "\n".join(out) or f"У «{r['of']['name']}» документов не записано. Их добавляют в карточке на плане."
+
+        @mcp.tool()
         def remove_item(item: str, by: str | None = None) -> str:
             """Вычеркнуть вещь из учёта: выбросили, отдали, закончилась. Запись можно вернуть из корзины."""
             try:
@@ -468,6 +558,10 @@ class Server:
             Route("/api/call", self.api_call, methods=["POST"]),
             Route("/api/vacuum", self.api_vacuum, methods=["POST"]),
             Route("/api/photo", self.api_photo, methods=["POST"]),
+            Route("/api/docs", self.api_doc_add, methods=["POST"]),
+            Route("/api/docs/{ref}", self.api_doc_delete, methods=["DELETE"]),
+            Route("/api/docs/{ref}", self.api_docs_of),
+            Route("/api/doc/{ref}", self.api_doc_file),
             Route("/api/plan.png", self.api_plan),
             Route("/api/show", self.api_show, methods=["POST"]),
             WebSocketRoute("/api/live", self.live),
@@ -512,24 +606,34 @@ def _item(e) -> dict:
     return {"id": e.id, "name": e.name, "parent": e.parent, "props": e.props}
 
 
+def _name_from(url: str) -> str:
+    """Имя файла копии по адресу: последняя часть пути (не имя сайта) или «stranitsa». Расширение поправит
+    store_file по содержимому: PDF с download.php ляжет как .pdf."""
+    path = url.split("#")[0].split("?")[0].split("//", 1)[-1].partition("/")[2]
+    return path.rstrip("/").rsplit("/", 1)[-1] or "stranitsa"
+
+
 def _describe(st: Store, h: dict) -> str:
     e = st.twin.by_id[h["id"]]
     ru = lookup(e.kind, e.type)[0]
     props = [f"{k}: {v}" for k, v in e.props.items() if isinstance(v, (str, int, float)) and not isinstance(v, bool)
-             and len(str(v)) < 160][:8]
+             and len(str(v)) < 160 and k not in ("file", "sha256", "mime", "size")][:8]
     line = f"{e.name} ({ru}) — {h['short']}"
     rel = {}
     for r in e.refs:                                     # «обои — где: Офис, Спальня», «Гр.3 — обслуживает: Кухня»
-        if r.rel in REL_RU and r.to in st.twin.by_id:
+        if r.rel in REL_RU and r.to in st.visible:       # закрытое не называется даже связью
             rel.setdefault(REL_RU[r.rel], []).append(st.twin.by_id[r.to].name)
     if rel:
         line += ". " + "; ".join(f"{k}: {', '.join(v)}" for k, v in rel.items())
     if props:
         line += ". " + "; ".join(props)
     if e.kind in (Kind.storage, Kind.furniture):
-        n = sum(1 for k in st.twin.children(e.id) if k.kind == Kind.item)
+        n = sum(1 for k in st.twin.children(e.id) if k.kind == Kind.item and k.id in st.visible)
         if n:
             line += f". Внутри записано вещей: {n}"
+    docs = sum(1 for d in st.docs_by.get(e.id, []) if d.id != e.id)   # docs_by — только видимые
+    if docs:
+        line += f". Документов: {docs} (инструмент documents)"
     return line + f" [id {e.id}]"
 
 
@@ -540,6 +644,7 @@ def main(argv=None) -> None:
     ap.add_argument("--packages", default=env("CHERRYBIM_PACKAGES", "packages"), help="папка с *.twin.json")
     ap.add_argument("--data", default=env("CHERRYBIM_DATA", "data"), help="папка для вещей (items.twin.json)")
     ap.add_argument("--media", default=env("CHERRYBIM_MEDIA"), help="папка медиа HA для фото (/media/cherrybim)")
+    ap.add_argument("--docs", default=env("CHERRYBIM_DOCS"), help="папка копий документов (по умолчанию DATA/docs)")
     ap.add_argument("--ai-task", default=env("CHERRYBIM_AI_TASK"), help="сущность ai_task для фото → вещи")
     ap.add_argument("--audience", default=env("CHERRYBIM_AUDIENCE", "household"), choices=[p.value for p in Privacy])
     ap.add_argument("--host", default=env("CHERRYBIM_HOST", "0.0.0.0"))
@@ -551,7 +656,7 @@ def main(argv=None) -> None:
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     warnings.filterwarnings("ignore", message=".*incomplete definition.*")    # шум pydantic-settings из mcp
-    store = Store(a.packages, a.data, Privacy(a.audience))
+    store = Store(a.packages, a.data, Privacy(a.audience), docs_dir=a.docs)
     srv = Server(store, HA(), media_dir=a.media, ai_task=a.ai_task, mcp_name=a.mcp_name, allow=a.allow,
                  show_script=a.show_script)
     log.info("пакетов %d, сущностей %d, вещей %d", len(store.base), len(store.twin.by_id), len(store.items.entities))
