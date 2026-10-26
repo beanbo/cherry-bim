@@ -31,7 +31,8 @@ fam("furniture.chest furniture.tv_stand furniture.wall_cabinet furniture.pedesta
       }
     }
     // render.socle_inset — отступ цоколя от фасада, render.sides_to_floor — боковины до пола, цоколь между ними;
-    // colors.inside — задняя стенка (в открытых нишах она в тени)
+    // colors.inside — задняя стенка, а в открытых нишах и вкладыши по дну и бокам (в глубине ниша в тени; светлыми
+    // остаются передние 1,5 см кромок)
     const si = r.socle_inset ?? 0.04, sf = !!r.sides_to_floor;
     if (r.legs === "plinth") kit.box(mat("socle", body), sf ? t : 0.02, si, 0, sf ? W - t : W - 0.02, D, base);
     kit.box(body, 0, 0, sf ? 0 : base, t, D, H - t);
@@ -47,6 +48,13 @@ fam("furniture.chest furniture.tv_stand furniture.wall_cabinet furniture.pedesta
         if (v0 > 0.001) kit.box(body, Math.max(x0, t), 0, z0 - t / 2, Math.min(x1, W - t), D - 0.006, z0 + t / 2);
         if (u0 > 0.001) kit.box(body, x0 - t / 2, 0, z0, x0 + t / 2, D - 0.006, z1);
         if (u1 < 0.999) kit.box(body, x1 - t / 2, 0, z0, x1 + t / 2, D - 0.006, z1);
+        if (r.colors?.inside) {
+          const ins = mat("inside", body), xa = Math.max(x0, t) + (u0 > 0.001 ? t / 2 : 0), xb = Math.min(x1, W - t) - (u1 < 0.999 ? t / 2 : 0);
+          const zf = v0 > 0.001 ? z0 + t / 2 : base + t, zc = v1 < 0.999 ? z1 - t / 2 : H - t;
+          kit.box(ins, xa, 0.015, zf, xb, D - 0.006, zf + 0.0008);
+          kit.box(ins, xa, 0.015, zf, xa + 0.0008, D - 0.006, zc);
+          kit.box(ins, xb - 0.0008, 0.015, zf, xb, D - 0.006, zc);
+        }
         continue;
       }
       front(kit, fr, x0, z0, x1, z1, { kind, handles: r.handles ?? "bar", handleMat: hm, hinge: hinge || (u0 + u1 < 1 ? "left" : "right"),
@@ -55,8 +63,13 @@ fam("furniture.chest furniture.tv_stand furniture.wall_cabinet furniture.pedesta
     }
   });
 
-// декоративная панель (облицовка стены, колонна под дерево)
-fam("furniture.panel", ({ kit, size: [W, D, H], mat }) => { kit.box(mat("body", M.oak), 0, 0, 0, W, D, H, 0.002); });
+// декоративная панель (облицовка стены, колонна под дерево, порог): render.skirting — плинтус по фасаду (высота),
+// render.nosing = [глубина, высота] — кромка-профиль по верхнему ребру фасада; цвета: body, skirting, nosing
+fam("furniture.panel", ({ kit, size: [W, D, H], mat, r }) => {
+  kit.box(mat("body", M.oak), 0, 0, 0, W, D, H, 0.002);
+  if (r.skirting) kit.box(mat("skirting", M.skirting), 0.001, -0.012, 0, W - 0.001, 0, r.skirting, 0.002);
+  if (r.nosing) kit.box(mat("nosing", M.brushed, "metal"), 0, -0.002, H - r.nosing[1], W, r.nosing[0] - 0.002, H + 0.001, 0.001);
+});
 
 // ═══ сиденья ════════════════════════════════════════════════════════════════
 // офисное кресло: пятилучье на колёсиках, газлифт, сиденье, спинка с подголовником, подлокотники; render.footrest
@@ -105,10 +118,11 @@ fam("furniture.table", ({ kit, size: [W, D, H], mat, r }) => {
 // мягкая скамья (банкетка) и пуф на деревянных ножках
 fam("furniture.bench", ({ kit, size: [W, D, H], mat, r }) => {
   // render.leg_inset — отступ ножек от углов, render.legs_dx / legs_dy — ряд ножек сдвинут по длине / к спинке,
-  // render.splay — разлёт [x, y], render.leg_r — радиус ножки вверху
+  // render.splay — разлёт [x, y], render.splay_corner — свой у углов {fl | fr | bl | br: [x, y]}, render.leg_r — радиус
+  // ножки вверху
   const fab = mat("body", matte(0x4f6b58), "fabric"), lh = r.legs_h ?? Math.min(0.17, H * 0.4), li = r.leg_inset ?? 0.07;
   const dx = r.legs_dx ?? 0, dy = r.legs_dy ?? 0;
-  splayLegs(kit, mat("legs", M.oak), li + dx, li + dy, W - li + dx, D - li + dy, lh + 0.01, r.leg_r ?? 0.017, r.splay ?? 0.03);
+  splayLegs(kit, mat("legs", M.oak), li + dx, li + dy, W - li + dx, D - li + dy, lh + 0.01, r.leg_r ?? 0.017, r.splay ?? 0.03, r.splay_corner ?? null);
   if (r.lid) {                                             // render.lid — сундук: короб и откидная крышка со швом
     kit.box(fab, 0.004, 0.004, lh, W - 0.004, D - 0.004, H - 0.065, 0.03);
     kit.box(fab, 0, 0, H - 0.062, W, D, H, 0.03);
@@ -195,20 +209,45 @@ fam("device.tv", ({ kit, e, env, size: [W, D, H] }) => {
   kit.box(env.own(e), 0.008, -0.001, 0.012, W - 0.008, 0.002, H - 0.008);
 });
 
-// внутренний блок сплит-системы: корпус, решётка снизу спереди, жалюзи, индикатор
+// дуга точками [y, z] (или [x, z]) для профилей: центр, радиус, углы от a0 до a1; rz — второй радиус (дуга эллипса)
+const arcYZ = (cy, cz, rr, a0, a1, n = 10, rz = rr) => Array.from({ length: n + 1 }, (_, i) => {
+  const a = a0 + (a1 - a0) * i / n;
+  return [cy + rr * Math.cos(a), cz + rz * Math.sin(a)];
+});
+// прямоугольник со скруглёнными углами точками [x, z]
+const roundRectXZ = (x0, z0, x1, z1, rc) => [...arcYZ(x1 - rc, z0 + rc, rc, -Math.PI / 2, 0, 6), ...arcYZ(x1 - rc, z1 - rc, rc, 0, Math.PI / 2, 6),
+  ...arcYZ(x0 + rc, z1 - rc, rc, Math.PI / 2, Math.PI, 6), ...arcYZ(x0 + rc, z0 + rc, rc, Math.PI, 3 * Math.PI / 2, 6)];
+
+// внутренний блок сплит-системы — профиль сбоку, выдавленный по ширине: плоский фасад, внизу спереди скругление, по нему
+// сетка-решётка загибается под корпус; торцевые крышки на 4 мм меньше панели (по кромке виден шов); снизу закрытые
+// жалюзи заподлицо, индикатор. render.radius — скругление верхней кромки фасада, render.back_drop — днище у стены ниже
+// губы; цвета: body, grille (решётка), slot (жалюзи)
 fam("device.ac", ({ kit, e, env, size: [W, D, H], mat, r }) => {
-  kit.box(mat("body", M.white), 0, 0.0, 0.05, W, D, H, 0.04);
-  kit.box(mat("slot", M.graphite), 0.03, 0.01, 0.02, W - 0.03, D - 0.02, 0.08, 0.02);       // выходная щель (у закрытых жалюзи — светлая)
-  kit.box(mat("body", M.white), 0.03, 0.02, 0.01, W - 0.03, 0.08, 0.05, 0.02);               // заслонка (видна снизу)
-  kit.box(mat("grille", mat("body", M.white)), 0.03, -0.002, 0.05, W - 0.03, 0.004, 0.16, 0.01);   // решётка внизу фасада
+  const body = mat("body", M.white), rt = r.radius ?? 0.04, zl = 0.03, R = Math.min(0.07, H * 0.2), P = Math.PI;
+  const yb = D * 0.45, zb = r.back_drop ? 0 : 0.03, g = 0.0015, ce = Math.min(0.03, W * 0.05);
+  const prof = d => [                                      // d — насколько профиль меньше спереди, сверху и снизу
+    ...arcYZ(rt, H - rt, rt - d, P, P / 2, 8), ...arcYZ(D - 0.01, H - 0.01, 0.01 - d / 3, P / 2, 0, 4),
+    [D, zb + d], [yb + 0.03, zb + d], [yb, zl + d], ...arcYZ(R, zl + R, R - d, 3 * P / 2, P, 20),
+  ];
+  kit.profileX(body, prof(0), ce, W - ce);
+  for (const [x0, x1] of [[0, ce], [W - ce, W]]) kit.profileX(body, prof(0.004), x0, x1);   // торцевые крышки
+  kit.profileX(mat("grille", body), [                      // решётка: лента по скруглению, чуть над корпусом
+    ...arcYZ(R, zl + R, R + g, P, 3 * P / 2, 20), [R + 0.015, zl - g], [R + 0.015, zl + 0.003], ...arcYZ(R, zl + R, R - 0.003, 3 * P / 2, P, 20),
+  ], ce + 0.012, W - ce - 0.012);
+  kit.box(mat("slot", M.graphite), 0.03, R + 0.017, zl - 0.0008, W - 0.03, yb - 0.002, zl - 0.0002);   // жалюзи снизу
   kit.box(env.own(e), W * 0.82, -0.002, H * 0.45, W * 0.9, 0.003, H * 0.52, 0.004);          // индикатор
-  if (r.back_drop) kit.box(mat("body", M.white), 0.03, D * 0.45, 0, W - 0.03, D, 0.06, 0.015);   // render.back_drop — днище у стены ниже губы
 });
 
-// бризер на стене: белый корпус со скруглёнными углами и съёмной передней панелью
-fam("device.breezer", ({ kit, e, env, size: [W, D, H], mat }) => {   // цвета: body, front
-  kit.box(mat("body", M.white), 0, 0.02, 0, W, D, H, 0.04);
-  kit.box(mat("front", pbr(0xeef0f2, { rough: 0.4 })), 0.01, 0, 0.01, W - 0.01, 0.025, H - 0.01, 0.03);
+// бризер на стене: корпус — профиль сбоку, выдавленный по ширине, и съёмная передняя панель со скруглёнными углами.
+// render.radius — скругление кромок корпуса, render.back_round = [по глубине, по высоте] — верхняя кромка у стены
+// скруглена сильнее (дуга эллипса); цвета: body, front
+fam("device.breezer", ({ kit, e, env, size: [W, D, H], mat, r }) => {
+  const rad = r.radius ?? 0.04, [ea, eb] = r.back_round ?? [rad, rad], P = Math.PI, y0 = 0.02;
+  kit.profileX(mat("body", M.white), [
+    ...arcYZ(y0 + rad, rad, rad, P, 3 * P / 2, 6), ...arcYZ(D - rad, rad, rad, 3 * P / 2, 2 * P, 6),
+    ...arcYZ(D - ea, H - eb, ea, 0, P / 2, 14, eb), ...arcYZ(y0 + rad, H - rad, rad, P / 2, P, 6),
+  ], 0, W);
+  kit.profileY(mat("front", pbr(0xeef0f2, { rough: 0.4 })), roundRectXZ(0.006, 0.006, W - 0.006, H - 0.006, Math.min(0.03, W / 4)), 0, 0.025);
   kit.box(env.own(e), W / 2 - 0.015, -0.002, 0.03, W / 2 + 0.015, 0.001, 0.045, 0.003);   // метка внизу по центру
   for (const x of [0.06, W - 0.18]) kit.box(M.graphite, x, 0.05, H - 0.001, x + 0.12, 0.062, H + 0.0005);   // щели на крыше
 });
@@ -398,13 +437,13 @@ export function fixture(kit, kind, glow, angle = 20, size = null, opt = {}) {
   const dz = opt.drop ?? 0;
   if (kind === "cross" || kind === "grid") {                // решётка «#» из двух пар планок
     const h = (size ?? 0.68) / 2, zb = -0.05 - dz, sp = opt.spacing ?? 0.06, hub = pbr(0xd8d9db, { rough: 0.4, metal: 0.3 });
-    if (dz) {                                              // корпус — плоская тёмная рамка вдоль планок на тонкой стойке
+    if (dz) {                                              // корпус — плоская тёмная рамка у потолка, планки висят ниже
       const fr = pbr(0x4a4d52, { rough: 0.5, metal: 0.3 });
       kit.at(new THREE.Matrix4().makeRotationZ(THREE.MathUtils.degToRad(angle)), () => {
-        for (const [x0, y0, x1, y1] of [[-0.075, -0.075, 0.075, -0.055], [-0.075, 0.055, 0.075, 0.075], [-0.075, -0.055, -0.055, 0.055], [0.055, -0.055, 0.075, 0.055]])
-          kit.box(fr, x0, y0, zb + 0.004, x1, y1, zb + 0.03, 0.003);
+        for (const [x0, y0, x1, y1] of [[-0.055, -0.055, 0.055, -0.04], [-0.055, 0.04, 0.055, 0.055], [-0.055, -0.04, -0.04, 0.04], [0.04, -0.04, 0.055, 0.04]])
+          kit.box(fr, x0, y0, -0.05, x1, y1, -0.03, 0.003);
       });
-      kit.cylZ(hub, 0, 0, zb + 0.03, 0, 0.012, 12);
+      kit.cylZ(hub, 0, 0, -0.03, 0, 0.012, 12);
     } else kit.cylZ(hub, 0, 0, -0.04, 0, 0.06, 24);
     const st = opt.stagger ?? 0;                           // opt.stagger — планки пары сдвинуты вдоль длины в разные стороны
     for (const [a, off] of [[angle, sp], [angle, -sp], [angle + 90, sp], [angle + 90, -sp]]) {   // opt.spacing — полушаг пар

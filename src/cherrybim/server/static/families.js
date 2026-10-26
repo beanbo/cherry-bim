@@ -103,35 +103,37 @@ function legs(kit, mat, x0, y0, x1, y1, h, r = 0.02, inset = 0.04) {
 // hinge — где петли у дверцы; at — где ручка у дверцы по высоте: "top", "bottom" или "middle"
 // В щели между соседними фасадами — тёмная подложка: одна лицевая плоскость в 1 мм за лицом фасада (не коробка: её
 // торцы выглядывали за кромки). outer = {l, r, b, t} — наружные кромки ряда фасадов: там подложки нет, видна светлая
-// кромка корпуса. Панель отступает от плоскости y на полмиллиметра.
+// кромка корпуса. Панель отступает от плоскости y на полмиллиметра. handleX — ручка дверцы от кромки, top — ручка ящика
+// (откидной дверцы) от верха. У gola над фасадом канал 3 см, а между двумя фасадами (сверху сосед) — средний профиль 2 см.
 const GAP = pbr(0x2e2e2c, { rough: 0.9 }), gaps = new Map();
-function gapOf(m) {                                        // подложка щели: цвет фасада ×0,6
+function gapOf(m, k = 0.6) {                               // подложка щели: цвет фасада ×k (по умолчанию ×0,6)
   const c = m?.color;
   if (!c) return GAP;
-  const h = c.getHex();
-  if (!gaps.has(h)) gaps.set(h, pbr([16, 8, 0].reduce((v, s) => v | Math.round(((h >> s) & 255) * 0.6) << s, 0), { rough: 0.9 }));
-  return gaps.get(h);
+  const h = c.getHex(), key = `${h}:${k}`;
+  if (!gaps.has(key)) gaps.set(key, pbr([16, 8, 0].reduce((v, s) => v | Math.round(((h >> s) & 255) * k) << s, 0), { rough: 0.9 }));
+  return gaps.get(key);
 }
 function front(kit, mat, x0, z0, x1, z1, { y = 0, t = 0.018, handles = "bar", kind = "door", hinge = "left",
-  handleMat = M.black, at = "top", hlen = null, outer = null } = {}) {
+  handleMat = M.black, at = "top", hlen = null, outer = null, handleX = 0.04, top = null } = {}) {
   const gap = 0.002, o = outer || {}, e = gap + 0.0005;
   if (handles === "gola") {                                // профиль gola: канал над фасадом вместо ручки, под ним губа профиля
-    kit.box(M.graphite, x0, y + 0.012, z1 - 0.03, x1, y + 0.03, z1);
-    kit.box(M.graphite, x0, y + 0.0005, z1 - 0.031, x1, y + 0.012, z1 - 0.029);
-    z1 -= 0.03;
+    const gc = o.t === false ? 0.02 : 0.03;
+    kit.box(M.graphite, x0, y + 0.012, z1 - gc, x1, y + 0.03, z1);
+    kit.box(M.graphite, x0, y + 0.0005, z1 - gc - 0.001, x1, y + 0.012, z1 - gc + 0.001);
+    z1 -= gc;
   }
   kit.slab(gapOf(mat), x0 + (o.l ? e : 0), y - t + 0.001, z0 + (o.b ? e : 0), x1 - (o.r ? e : 0), y - t + 0.0012, z1 - (o.t ? e : 0), "x-x+y+z-z+");
   kit.box(mat, x0 + gap, y - t, z0 + gap, x1 - gap, y - 0.0005, z1 - gap, 0.0007);
   if (handles === "none" || handles === "gola") return;
   const w = x1 - x0, h = z1 - z0, yf = y - t;
   if (kind === "drawer") {                                 // at = "middle" — ручка ящика по середине фасада
-    const z = at === "middle" ? (z0 + z1) / 2 - 0.01 : z1 - Math.min(0.05, h / 3);
+    const z = at === "middle" ? (z0 + z1) / 2 - 0.01 : z1 - (top ?? Math.min(0.05, h / 3));
     if (handles === "knob") knob(kit, handleMat, (x0 + x1) / 2, z, yf);
     else if (handles === "arch") arch(kit, handleMat, (x0 + x1) / 2, z, hlen ?? Math.min(0.13, w * 0.4), yf);
     else bar(kit, handleMat, (x0 + x1) / 2, z, hlen ?? Math.min(0.16, w * 0.5), "x", yf);
     return;
   }
-  const len = hlen ?? Math.min(0.16, h * 0.5), hx = hinge === "right" ? x0 + 0.04 : x1 - 0.04;
+  const len = hlen ?? Math.min(0.16, h * 0.5), hx = hinge === "right" ? x0 + handleX : x1 - handleX;
   const hz = at === "bottom" ? z0 + len / 2 + 0.05 : at === "middle" ? (z0 + z1) / 2 : z1 - len / 2 - 0.05;
   if (handles === "knob") knob(kit, handleMat, hx, hz, yf);
   else bar(kit, handleMat, hx, hz, len, "z", yf);
@@ -175,7 +177,9 @@ fam("furniture.sofa", ({ kit, size: [W, D, H], mat, r }) => {
   // render.legs = false — без ножек: обивка почти до пола; render.arms = false — без подлокотников;
   // render.bolster — спинка ниже, по её верху во всю длину мягкий валик (render.bolster_inset — валик отступает от
   // задней грани, сверху видна полоса спинки); render.back = "tufted" — цельная стёганая спинка без подушек;
-  // render.seats — число подушек сиденья; render.arm_w, arm_r, arm_h — ширина, скругление и высота подлокотников;
+  // render.seats — число подушек сиденья; render.arm_w, arm_r, arm_h — ширина, скругление и высота подлокотников,
+  // render.arm_bulge — подлокотники пухлые: шире наружу на столько же, на сколько больше скругление (верхняя кромка на
+  // месте, бок ниже выступает), render.arm_flare — подлокотники расходятся наружу к спинке: сзади на столько шире;
   // у стёганой спинки render.seams_v — число вертикальных швов, render.seam_h — высота горизонтального
   const body = mat("body", matte(0x8e98a3), "fabric"), cush = mat("cushion", body, "fabric"), tufted = r.back === "tufted";
   const a = r.arms === false ? 0 : r.arm_w ?? Math.min(0.2, W * 0.12), back = Math.min(0.24, D * 0.3), lh = r.legs === false ? 0.02 : r.legs_h ?? 0.09;
@@ -185,8 +189,9 @@ fam("furniture.sofa", ({ kit, size: [W, D, H], mat, r }) => {
   kit.box(body, 0, 0.02, lh, W, D, 0.3, 0.03);                                           // основание
   if (a) {
     const ar = r.arm_r ?? 0.06, ah = r.arm_h ?? 0.64;
-    kit.box(body, 0, 0, lh, a, D, ah, ar);                                               // подлокотники
-    kit.box(body, W - a, 0, lh, W, D, ah, ar);
+    const bu = r.arm_bulge ?? 0, fl = Math.atan2(r.arm_flare ?? 0, D) * 180 / Math.PI;   // поворот вокруг переднего ребра
+    kit.turn(fl, 0, 0, () => kit.box(body, -bu, 0, lh, a, D, ah, ar + bu));             // подлокотники
+    kit.turn(-fl, W, 0, () => kit.box(body, W - a, 0, lh, W + bu, D, ah, ar + bu));
   }
   if (r.bolster) {
     const by = r.bolster_inset != null ? D - r.bolster_inset - 0.1 : D - back / 2;
@@ -214,7 +219,8 @@ fam("furniture.desk", ({ kit, size: [W, D, H], mat, r }) => {
   // render.legs: "panel" — боковины и экран сзади (render.screen = false — без экрана), "wood" — тонкие ножки,
   // "splay" — деревянные конические ножки, разведённые наружу (опоры выходят за коробку), иначе металлический
   // каркас; render.drawer — ящик под столешницей у фасада (render.drawers — ящики [x0, x1] вдоль стола);
-  // render.panel_inset = [слева, справа] — боковины отступают от торцов столешницы
+  // render.panel_inset = [слева, справа] — боковины отступают от торцов столешницы; render.apron_flush — у "splay"
+  // короб под столешницей во всю длину, заподлицо с её торцами
   const wood = ["panel", "wood", "splay"].includes(r.legs);
   const top = mat("top", M.oak), frame = mat("frame", wood ? top : M.white), t = 0.025;
   kit.box(top, 0, 0, H - t, W, D, H, 0.003);
@@ -224,7 +230,8 @@ fam("furniture.desk", ({ kit, size: [W, D, H], mat, r }) => {
     if (r.screen !== false) kit.box(frame, 0.025, D - 0.05, H * 0.35, W - 0.025, D - 0.03, H - t);   // экран сзади
   } else if (r.legs === "splay") {
     splayLegs(kit, frame, 0.05, 0.07, W - 0.05, D - 0.07, H - t, 0.022, r.splay ?? 0.1);   // render.splay — число или [dx, dy]
-    kit.box(frame, 0.05, 0.05, H - t - 0.08, W - 0.05, D - 0.05, H - t);                  // царга
+    if (r.apron_flush) kit.box(frame, 0, 0.04, H - t - 0.09, W, D - 0.02, H - t);       // короб заподлицо с торцами
+    else kit.box(frame, 0.05, 0.05, H - t - 0.08, W - 0.05, D - 0.05, H - t);             // царга
   } else if (r.legs === "wood") {
     for (const x of [0.05, W - 0.05]) for (const y of [0.05, D - 0.05]) kit.rod(frame, [x, y, 0], [x, y, H - t], 0.018, 12, 0.022);
     kit.box(frame, 0.04, 0.04, H - t - 0.09, W - 0.04, D - 0.04, H - t);                  // царга
@@ -236,6 +243,10 @@ fam("furniture.desk", ({ kit, size: [W, D, H], mat, r }) => {
   dr.forEach(([x0, x1], i) => front(kit, mat("front", top), x0, H - t - 0.09, x1, H - t - 0.005,
     { y: 0.04, kind: "drawer", handles: r.handles ?? "none", handleMat: mat("handle", M.black, "metal"),
       outer: { l: i === 0, r: i === dr.length - 1, t: true, b: true } }));
+  for (let i = 1; i < dr.length; i++) {                    // узкий промежуток между ящиками — подложка, иначе в нём царга
+    const a = dr[i - 1][1], b = dr[i][0];
+    if (b > a && b - a < 0.03) kit.slab(gapOf(mat("front", top)), a - 0.002, 0.023, H - t - 0.09, b + 0.002, 0.0232, H - t - 0.005, "x-x+y+z-z+");
+  }
 });
 
 fam("furniture.dining_table", ({ kit, size: [W, L, H], mat, r }) => {
@@ -295,12 +306,14 @@ function tableAt(kit, top, legMat, cx, cy, tw, tl, h, kind, inset = 0.07, splay 
   }
 }
 
-// расставленные наружу конические ножки по углам прямоугольника (стулья, пуфы, скамьи)
-function splayLegs(kit, mat, x0, y0, x1, y1, h, r = 0.016, splay = 0.04) {
+// расставленные наружу конические ножки по углам прямоугольника (стулья, пуфы, скамьи); corners — свой разлёт у
+// отдельных углов: {fl | fr | bl | br: [dx, dy]} (f — у фасада, r — справа, если смотреть на фасад)
+function splayLegs(kit, mat, x0, y0, x1, y1, h, r = 0.016, splay = 0.04, corners = null) {
   const [sx, sy] = Array.isArray(splay) ? splay : [splay, splay];
   const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
   for (const x of [x0, x1]) for (const y of [y0, y1]) {
-    const dx = Math.sign(x - cx) * sx, dy = Math.sign(y - cy) * sy;
+    const [cs, ct] = corners?.[(y === y0 ? "f" : "b") + (x === x1 ? "r" : "l")] ?? [sx, sy];
+    const dx = Math.sign(x - cx) * cs, dy = Math.sign(y - cy) * ct;
     kit.rod(mat, [x + dx, y + dy, 0], [x, y, h], r * 0.7, 10, r);
   }
 }
@@ -336,7 +349,8 @@ function shellChair(kit, fabric, legMat, x, y) {
 }
 
 fam("furniture.bookshelf", ({ kit, size: [W, D, H], mat, r }) => {
-  // render.doors_below — высота закрытой части с двумя дверцами внизу, выше открытые полки
+  // render.doors_below — высота закрытой части с двумя дверцами внизу, выше открытые полки; render.handle_x — ручки
+  // от среднего шва
   const b = mat("body", M.white), t = 0.018;
   kit.box(b, 0, 0, 0, t, D, H);
   kit.box(b, W - t, 0, 0, W, D, H);
@@ -352,8 +366,9 @@ fam("furniture.bookshelf", ({ kit, size: [W, D, H], mat, r }) => {
   if (r.doors_below) {
     const fr = mat("front", b), hm = mat("handle", M.brushed, "satin"), handles = r.handles ?? "bar";
     const zd = r.doors_from ?? 0.06;                       // render.doors_from — низ дверец (цоколь за ними)
-    front(kit, fr, 0, zd, W / 2, zb, { kind: "door", hinge: "left", handleMat: hm, handles, outer: { l: true, t: true, b: true } });
-    front(kit, fr, W / 2, zd, W, zb, { kind: "door", hinge: "right", handleMat: hm, handles, outer: { r: true, t: true, b: true } });
+    const handleX = r.handle_x ?? 0.04;
+    front(kit, fr, 0, zd, W / 2, zb, { kind: "door", hinge: "left", handleMat: hm, handles, handleX, outer: { l: true, t: true, b: true } });
+    front(kit, fr, W / 2, zd, W, zb, { kind: "door", hinge: "right", handleMat: hm, handles, handleX, outer: { r: true, t: true, b: true } });
   }
 });
 
@@ -425,7 +440,7 @@ fam("furniture.kitchen_unit", ({ kit, e, env, size: [W, D, H], mat, r }) => {
     kit.box(body, t, D - 0.014, plinth + t, W - t, D - 0.01, z1);
     kit.box(body, t, r.handles === "gola" ? 0.035 : 0, z1 - t, W - t, 0.1, z1);   // передняя царга — за каналом gola
     kit.box(body, t, D - 0.11, z1 - t, W - t, D - 0.014, z1);
-  } else kit.box(body, 0, 0, plinth, W, D, H);
+  } else kit.box(body, 0, 0, r.underside ? Math.max(plinth, 0.017) : plinth, W, D, H);
   // render.underside — дно навесного модуля другого цвета: видно снизу и кромкой 18 мм под фасадами
   if (!base && r.underside) kit.box(mat("underside", body), 0, r.underside === "inset" ? 0 : -0.018, -0.001, W, D, 0.017);   // "inset" — за фасадами
   if (base) {
@@ -527,24 +542,31 @@ fam("furniture.hallway_set furniture.*", ({ kit, e, env, size, mat, r }) => {
     }
     kit.box(body, c.xa, c.y0, c.za, c.xa + t, c.y1, c.zb);
   }
+  // render.leg_inset — ножки от торцов, render.leg_y = [y0, y1] — ряды ножек от плоскости фасада (одни у всех частей),
+  // render.leg_splay — разлёт у пола
+  const li = r.leg_inset ?? 0.035, ly = r.leg_y, ls = r.leg_splay ?? 0.03;
   for (const f of feet.values()) {
-    if (r.legs === "splay") splayLegs(kit, mat("legs", M.oak), f.x0 + 0.035, f.y0 + 0.035, f.x1 - 0.035, f.y1 - 0.035, f.z, 0.015, 0.03);
-    else legs(kit, mat("legs", M.oak), f.x0, f.y0, f.x1, f.y1, f.z, 0.015, 0.035);
+    const ya = ly ? ly[0] : f.y0 + li, yb = ly ? Math.min(ly[1], f.y1 - li) : f.y1 - li;
+    if (r.legs === "splay") splayLegs(kit, mat("legs", M.oak), f.x0 + li, ya, f.x1 - li, yb, f.z, 0.015, ls);
+    else legs(kit, mat("legs", M.oak), f.x0 + li, ya, f.x1 - li, yb, f.z, 0.015, 0);
   }
   for (const l of lids.values()) kit.box(topM, l.x0 - 0.01, l.y0, l.z, l.x1 + 0.01, l.y1 + 0.005, l.z + 0.022, 0.003);   // цельная крышка
   const hooks = boxes.find(b => b.front === "hooks");
   if (hooks && r.panel_frame) {                            // рамка вешалки: стойки, перекладины, между ними рейки с просветами
     const [pz0, pz1] = r.panel || [hooks.z0 - 0.35, hooks.z1 + 0.05], pm = mat("panel", topM), pf = r.panel_frame;
-    const st = pf.stile ?? 0.045, tr = pf.top ?? 0.17, br = pf.bottom ?? 0.06, n = pf.slats ?? 8, y0 = D - 0.022;
+    // stile — ширина стоек: число или [у начала, у конца]
+    const [sa, sb] = Array.isArray(pf.stile) ? pf.stile : [pf.stile ?? 0.045, pf.stile ?? 0.045];
+    const tr = pf.top ?? 0.17, br = pf.bottom ?? 0.06, n = pf.slats ?? 8, y0 = D - 0.022;
     const xa = hooks.x0, xb = hooks.x1;
-    kit.box(pm, xa, y0, pz0, xa + st, D, pz1, 0.003);
-    kit.box(pm, xb - st, y0, pz0, xb, D, pz1, 0.003);
-    kit.box(pm, xa + st, y0, pz1 - tr, xb - st, D, pz1, 0.003);
-    kit.box(pm, xa + st, y0, pz0, xb - st, D, pz0 + br, 0.003);
-    kit.slab(gapOf(pm), xa + st, D - 0.002, pz0 + br, xb - st, D - 0.0015, pz1 - tr, "x-x+y+z-z+");   // в просветах между рейками — тень
-    const gap = pf.gap ?? 0.014, sw = (xb - xa - 2 * st - (n + 1) * gap) / n;
+    kit.box(pm, xa, y0, pz0, xa + sa, D, pz1, 0.003);
+    kit.box(pm, xb - sb, y0, pz0, xb, D, pz1, 0.003);
+    kit.box(pm, xa + sa, y0, pz1 - tr, xb - sb, D, pz1, 0.003);
+    kit.box(pm, xa + sa, y0, pz0, xb - sb, D, pz0 + br, 0.003);
+    // в просветах между рейками — тень, светлее щелей фасадов: просвет широкий, в нём видна освещённая кромка рейки
+    kit.slab(gapOf(pm, 0.8), xa + sa, D - 0.002, pz0 + br, xb - sb, D - 0.0015, pz1 - tr, "x-x+y+z-z+");
+    const gap = pf.gap ?? 0.014, sw = (xb - xa - sa - sb - (n + 1) * gap) / n;
     for (let i = 0; i < n; i++) {
-      const x = xa + st + gap + i * (sw + gap);
+      const x = xa + sa + gap + i * (sw + gap);
       kit.box(pm, x, y0, pz0 + br, x + sw, D, pz1 - tr, 0.002);
     }
   } else if (hooks) {                                      // панель вешалки: render.panel = [z0, z1]
@@ -577,8 +599,14 @@ fam("storage.*", ({ kit, e, env, size: [W, D, H], r }) => {
     : hex(colors.body, null) != null ? satinOf(colors.body) : M.white;
   const handles = r.handles ?? fr.handles ?? "bar", handleMat = satinOf(colors.handle) || M.black;
   const inner = !!furn && Array.isArray(fr.fronts) || furn?.type === "wardrobe";   // за дверями шкафа
+  // render.abut (у места или мебели) — кромки фасада ["l", "r", "b", "t"], к которым вплотную примыкают панели:
+  // там, как между фасадами, в щели тёмная подложка
+  const abut = r.abut ?? fr.abut;
+  const sp = () => { const s = spread(e, env, W, H); if (abut) for (const k of abut) s[4][k] = false; return s; };
   if (kind === "drawer") {                                 // render.inlay — вкладной фасад между боковинами
-    const [x0, x1, z0, z1, outer] = inner || r.inlay ? [0, W, 0, H, null] : spread(e, env, W, H);
+    // render.inset = [dx, dz] — внутренний ящик уже секции: фасад отступает от боковин и соседей
+    const [ix, iz] = inner && r.inset || [0, 0];
+    const [x0, x1, z0, z1, outer] = inner || r.inlay ? [ix, W - ix, iz, H - iz, null] : sp();
     const fm = inner ? (hex(colors.body, null) != null ? satinOf(colors.body) : M.white) : frontMat;
     const fy = inner ? 0 : r.inlay ? yf + 0.018 : yf;     // render.handle_at = "middle" — ручка по середине ящика
     front(kit, fm, x0, z0, x1, z1, { y: fy, kind: "drawer", handles: inner ? "none" : handles, handleMat, at: r.handle_at ?? fr.handle_at ?? "top",
@@ -586,7 +614,7 @@ fam("storage.*", ({ kit, e, env, size: [W, D, H], r }) => {
     if (r.lock) kit.rod(M.chrome, [x1 - 0.035, fy - 0.018, z1 - 0.03], [x1 - 0.035, fy - 0.022, z1 - 0.03], 0.0075, 14);   // render.lock — замок
     kit.box(M.whiteMatte, 0.012, r.inlay ? yf + 0.02 : Math.max(yf, 0), 0.01, W - 0.012, D - 0.01, Math.min(H - 0.02, 0.14 + 0.01));   // короб ящика
   } else if (kind === "door") {
-    const [x0, x1, z0, z1, outer] = r.inlay ? [0, W, 0, H, null] : spread(e, env, W, H), fz = env.floorZ(e);
+    const [x0, x1, z0, z1, outer] = r.inlay ? [0, W, 0, H, null] : sp(), fz = env.floorZ(e);
     const at = r.at ?? (fz + z1 < 1.2 ? "top" : fz + z0 > 1.2 ? "bottom" : "middle"), n = r.leaves ?? 1;   // render.at, handle_len
     for (let i = 0; i < n; i++) {                          // render.leaves — створок в фасаде
       const a = x0 + (x1 - x0) * i / n, b = x0 + (x1 - x0) * (i + 1) / n;
@@ -594,9 +622,9 @@ fam("storage.*", ({ kit, e, env, size: [W, D, H], r }) => {
       front(kit, frontMat, a, z0, b, z1, { y: r.inlay ? yf + 0.018 : yf, kind: "door", handles, at, handleMat, hlen: r.handle_len ?? null, outer: ou,
         hinge: n > 1 ? (i % 2 ? "right" : "left") : r.hinge ?? (W > 0.5 ? "left" : "right") });
     }
-  } else if (kind === "flap") {                            // откидная дверца: ручка по центру у верхнего края
-    const [x0, x1, z0, z1, outer] = r.inlay ? [0, W, 0, H, null] : spread(e, env, W, H);
-    front(kit, frontMat, x0, z0, x1, z1, { y: r.inlay ? yf + 0.018 : yf, kind: "drawer", handles, handleMat, outer });
+  } else if (kind === "flap") {                            // откидная дверца: ручка по центру у верхнего края (render.knob_top — от верха)
+    const [x0, x1, z0, z1, outer] = r.inlay ? [0, W, 0, H, null] : sp();
+    front(kit, frontMat, x0, z0, x1, z1, { y: r.inlay ? yf + 0.018 : yf, kind: "drawer", handles, handleMat, outer, top: r.knob_top ?? null });
   } else if (kind === "open" || kind === "shelf") {
     const bm = satinOf(colors.body) || M.white;
     kit.box(bm, 0, Math.max(0, yf), 0, W, D, r.board ?? 0.016, r.board ? 0.004 : 0);     // render.board — толщина доски
@@ -771,12 +799,14 @@ fam("device.vacuum", ({ kit, size, mat, r }) => {
 }, FREE);
 
 fam("device.thermostat", ({ kit, e, env }) => {
-  // термостатическая головка на клапане прибора: справа сверху у прибора, если он известен
+  // термостатическая головка на клапане прибора: сверху у торца прибора, если он известен; торец — render.valve
+  // прибора ("left" — левый, если смотреть из комнаты), по умолчанию правый
   const rad = (e.refs || []).map(x => env.by(x.to)).find(x => x?.geom?.type === "box");
   let at = [0, 0, 0];
   if (rad) {
     const m = env.rel(e, rad), [L, D, H] = rad.geom.size;
-    at = new THREE.Vector3(L + 0.04, D * 0.5, H - 0.02).applyMatrix4(m).toArray();
+    const x = rad.props?.render?.valve === "left" ? -0.04 : L + 0.04;
+    at = new THREE.Vector3(x, D * 0.5, H - 0.02).applyMatrix4(m).toArray();
   }
   kit.cylZ(M.chrome, at[0], at[1], at[2] - 0.03, at[2] + 0.02, 0.012, 16);
   kit.cylZ(env.own(e), at[0], at[1], at[2] + 0.02, at[2] + 0.1, 0.027, 28);
@@ -871,7 +901,7 @@ fam("mep.radiator", ({ kit, size, mat, r }) => {
   kit.move(off[0], off[1], 0, () => {
     if (r.style === "convector") {
       kit.box(w, 0, 0, 0, L, D, H, 0.01);
-      kit.box(pbr(0x7a7d81, { rough: 0.8 }), 0.03, 0.012, H - 0.001, L - 0.02, D - 0.012, H + 0.0005);   // решётка
+      kit.box(pbr(0x7a7d81, { rough: 0.8 }), 0, 0, H - 0.001, L, D, H + 0.0005);            // решётка на всю крышку
     } else {
       kit.box(w, 0, D * 0.15, 0.01, L, D * 0.85, H - 0.01);
       for (let x = 0.015; x < L - 0.01; x += 0.033) kit.box(w, x, 0, 0.02, x + 0.022, D * 0.15 + 0.001, H - 0.02, 0.006);   // каналы
@@ -1027,8 +1057,10 @@ function opening(e, env) {
 }
 
 // окно ПВХ: стена под подоконником и над проёмом, рама, створки со стеклом и ручками, подоконник, откосы
-function windowAt(kit, { W, T, H, zf, top }, { sashes, frameMat = M.pvc, sillDepth = 0.06, door = null, railing = false }) {
-  const fz = T * 0.42, fd = 0.07, pf = 0.06;                // рама в толще стены ближе к улице
+// frameTop — высота верхнего бруса рамы (иначе как у остальных), railColor — цвет ограждения
+function windowAt(kit, { W, T, H, zf, top }, { sashes, frameMat = M.pvc, sillDepth = 0.06, door = null, railing = false,
+  frameTop = null, railColor = null }) {
+  const fz = T * 0.42, fd = 0.07, pf = 0.06, ft = frameTop ?? pf;   // рама в толще стены ближе к улице
   // стена под окном и перемычка утоплены на полмиллиметра от плоскостей стены: иначе ребро их торца лежит в плоскости
   // соседней стены, бьётся с ней по глубине и рисует светлый пунктир
   // торцы у откосов (x = 0 и x = W) не строятся: они упираются в откос стены и под острым углом пробивали пунктиром
@@ -1039,11 +1071,13 @@ function windowAt(kit, { W, T, H, zf, top }, { sashes, frameMat = M.pvc, sillDep
   kit.slab(frameMat, 0, fz, 0, pf, fz + fd, H, "x-");
   kit.slab(frameMat, W - pf, fz, 0, W, fz + fd, H, "x+");
   kit.box(frameMat, pf, fz, 0, W - pf, fz + fd, pf);
-  kit.box(frameMat, pf, fz, H - pf, W - pf, fz + fd, H);
+  kit.box(frameMat, pf, fz, H - ft, W - pf, fz + fd, H);
   if (zf > 0.01) kit.box(frameMat, -0.04, -sillDepth, -0.025, W + 0.04, fz + 0.005, 0.0, 0.003);   // подоконник
   kit.box(pbr(0xd8dadc, { rough: 0.5, metal: 0.4 }), 0, fz + fd, -0.012, W, T + 0.04, 0.0);        // отлив
   if (railing) {                                           // ограждение снаружи: поручень и стойки до 1,1 м от пола
-    const rz = 1.1 - zf, rail = pbr(0x3b3e42, { rough: 0.45, metal: 0.6 }), ry = T + 0.05;
+    // белое, как на фото; снаружи его освещает небо со всех сторон — чуть светится своим цветом, иначе против света
+    // сквозь тюль читается тёмными стойками
+    const rc = railColor ?? 0xe6e6e2, rz = 1.1 - zf, rail = pbr(rc, { rough: 0.5, metal: 0.1, emissive: rc, emissiveIntensity: 0.55 }), ry = T + 0.05;
     if (rz > 0.05) {
       kit.box(rail, -0.05, ry - 0.02, rz - 0.04, W + 0.05, ry + 0.02, rz);
       kit.box(rail, -0.05, ry - 0.015, 0.02, W + 0.05, ry + 0.015, 0.05);
@@ -1055,9 +1089,9 @@ function windowAt(kit, { W, T, H, zf, top }, { sashes, frameMat = M.pvc, sillDep
   for (const p of parts) {
     const x0 = x, x1 = x + p.w;
     x = x1;
-    if (p.mullion) { kit.box(frameMat, x0, fz, pf, x1, fz + fd, H - pf); continue; }
-    if (p.fixed) { kit.box(M.glass, x0, fz + 0.02, pf, x1, fz + 0.044, H - pf); continue; }   // глухое стекло прямо в раме
-    const z0 = p.z0 ?? pf, z1 = H - pf;
+    if (p.mullion) { kit.box(frameMat, x0, fz, pf, x1, fz + fd, H - ft); continue; }
+    if (p.fixed) { kit.box(M.glass, x0, fz + 0.02, pf, x1, fz + 0.044, H - ft); continue; }   // глухое стекло прямо в раме
+    const z0 = p.z0 ?? pf, z1 = H - ft;
     const sf = 0.055, sy0 = fz - 0.012, sy1 = fz + fd - 0.01;
     kit.box(frameMat, x0, sy0, z0, x0 + sf, sy1, z1, 0.003);
     kit.box(frameMat, x1 - sf, sy0, z0, x1, sy1, z1, 0.003);
@@ -1074,14 +1108,18 @@ function windowAt(kit, { W, T, H, zf, top }, { sashes, frameMat = M.pvc, sillDep
 }
 
 fam("opening.window", ({ kit, e, env, r }) => {
-  // створки: render.sashes или по ширине (две у окна шире 1,1 м), между ними импост
-  const o = opening(e, env);
+  // створки: render.sashes или по ширине (две у окна шире 1,1 м), между ними импост; render.fixed — номера глухих
+  // полотен (стекло прямо в раме, 0 — у начала проёма), render.frame_top — высота верхнего бруса,
+  // render.railing_color — цвет ограждения
+  const o = opening(e, env), fixed = r.fixed || [];
   kit.at(o.m, () => windowAt(kit, o, {
     railing: !!r.railing, sillDepth: r.sill_depth ?? 0.06,   // render.sill_depth — вынос подоконника в комнату
+    frameTop: r.frame_top ?? null, railColor: hex(r.railing_color, null),
     sashes: w => {
       const n = Math.max(1, Math.round(r.sashes ?? (w > 1.1 ? 2 : 1))), m = 0.07, sw = (w - (n - 1) * m) / n, out = [];
       for (let i = 0; i < n; i++) {
         if (i) out.push({ w: m, mullion: true });
+        if (fixed.includes(i)) { out.push({ w: sw, fixed: true }); continue; }
         out.push({ w: sw, handle: n === 1 || i % 2 ? (i % 2 ? "left" : "right") : "right" });
       }
       return out;
@@ -1227,7 +1265,7 @@ fam("opening.*", ({ kit, e, env }) => {
   // проход без двери: перемычка, пол в проёме как в комнате, плинтус по обоим откосам
   const o = opening(e, env), fm = env.floor?.(e);
   kit.at(o.m, () => {
-    if (o.top - o.H > 0.01) kit.slab(M.paint, 0, IN, o.H, o.W, o.T - IN, o.top, "x-x+");
+    if (o.top - o.H > 0.01) kit.slab(M.paint, 0, -IN, o.H, o.W, o.T + IN, o.top, "x-x+");   // перед плоскостями стены
     if (fm) kit.box(fm, 0, -0.01, -0.02, o.W, o.T + 0.01, 0.0035);   // под пол комнат: общих кромок нет
     if (e.type === "passage") for (const [x0, x1] of [[0, 0.014], [o.W - 0.014, o.W]]) kit.box(M.skirting, x0, -0.001, 0, x1, o.T + 0.001, 0.07, 0.002);
   });

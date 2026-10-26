@@ -142,8 +142,8 @@ class Store:
                     "entities": ents}
 
     def bound_entities(self) -> set[str]:
-        """entity_id HA, к которым привязан двойник (для живых состояний)."""
-        out = set()
+        """entity_id HA, к которым привязан двойник (для живых состояний); sun.sun — небо за окнами по времени суток."""
+        out = {"sun.sun"}
         with self.lock:
             for e in self.twin.visible_to(self.audience):
                 for k, v in e.bind.items():

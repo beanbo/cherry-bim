@@ -64,7 +64,7 @@ const PROP = { number: "номер", area_brti: "площадь по БРТИ, �
   places: "мест", keys: "клавиш", height_m: "высота, м", as_built: "как сделано", copy_of: "копия страницы",
   kitchen_project: "проект кухни", outlets_by_kitchen_project: "розетки по проекту", electrics_bought_2024_08_16: "куплено 16.08.2024",
   mattress: "матрас", bed: "кровать", table: "стол", chairs: "стулья", surface: "поверхность", clear_height: "до потолка, м",
-  slab_height: "до плиты, м" };
+  slab_height: "до плиты, м", valve: "клапан" };
 const HIDDEN_PROPS = new Set(["render", "ids"]);          // подсказки для отрисовки — не для карточки; номера — отдельно
 const DOC_PROPS = new Set(["url", "file", "mime", "size", "sha256", "saved_at", "pages", "copy_of"]);   // у документа — своим блоком
 const FMT = { "application/pdf": "PDF", "text/html": "страница", "image/jpeg": "фото", "image/png": "картинка", "image/webp": "картинка" };
@@ -93,8 +93,10 @@ controls.screenSpacePanning = true;
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 scene.environmentIntensity = 0.55;
-const hemi = new THREE.HemisphereLight(0xffffff, 0xd9d5ce, 0.55);
-const sun = new THREE.DirectionalLight(0xfffaf3, 2.1);
+const OUTSIDE_LIGHT = [2.1, 0.55, 0.55];                  // солнце, небо, окружение: срез и виды снаружи
+const INSIDE_LIGHT = (QS.get("lt") || "0,1.0,0.9").split(",").map(Number);   // квартира под потолком; ?lt= — подбор
+const hemi = new THREE.HemisphereLight(0xffffff, 0xd9d5ce, OUTSIDE_LIGHT[1]);
+const sun = new THREE.DirectionalLight(0xfffaf3, OUTSIDE_LIGHT[0]);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.bias = -0.0003;
@@ -103,7 +105,8 @@ const world = new THREE.Group();
 const helpers = new THREE.Group();
 const backdrop = new THREE.Group();                       // земля под кварталом
 const ceilings = new THREE.Group();                       // потолки комнат: только в виде квартиры без среза
-scene.add(hemi, sun, sun.target, world, helpers, backdrop, ceilings);
+const outside = new THREE.Group();                        // земля, видная из окон квартиры (вид без среза)
+scene.add(hemi, sun, sun.target, world, helpers, backdrop, ceilings, outside);
 
 // кадр: сцена в буфер со сглаживанием, затенение углов (GTAO), тонмаппинг и sRGB
 // ?msaa=0 — без сглаживания в буфере: программный WebGL (SwiftShader) пропускает в MSAA-буфере кромки закрытых вещей
@@ -707,6 +710,12 @@ function makeGround() {
   g.receiveShadow = true;
   g.userData.noPick = true;
   backdrop.add(g);
+  // из окон квартиры (вид под потолком) земля видна: ровная, серо-зелёная — какая она на самом деле, данные не знают
+  outside.clear();
+  const land = new THREE.Mesh(new THREE.CircleGeometry(r, 64), pbr(0xa9ab9f, { rough: 1 }));
+  land.position.set(c.x, c.y, z - 0.05);
+  land.userData.noPick = true;
+  outside.add(land);
 }
 
 // устройства без геометрии: светильник — у потолка в своей точке или в центре комнаты, с пятном света на полу;
@@ -825,7 +834,7 @@ function makeLabels() {
     } else if (e.kind === "section") {
       const b = new THREE.Box3().setFromObject(o);
       add(e, new THREE.Vector3((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, b.max.z + 1.5), e._myBld ? "house" : "-");
-    } else if (e.kind === "building") {
+    } else if (e.kind === "building" && e.type !== "context") {   // окружение без подписей: их десятки
       const b = new THREE.Box3().setFromObject(o);
       add(e, new THREE.Vector3((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, b.max.z + 4), "site", true);
     } else if (e.kind === "feature" && e.name && !/^(Парковка|Газон|Зелень)$/i.test(e.name)) {
@@ -840,7 +849,11 @@ function hasSectionGeom(e) { return (S.kids.get(e.id) || []).some(c => c.kind ==
 
 function visibleIn(e) {
   const k = e.kind, v = S.view;
-  if (v === "unit") return e._inUnit && (S.mep || !(k === "mep" && HIDDEN_MEP.has(e.type)));
+  if (v === "unit") {
+    if (e._inUnit) return S.mep || !(k === "mep" && HIDDEN_MEP.has(e.type));
+    // под потолком из окон видно окружение: соседние дома и двор; своего дома нет — квартира внутри него
+    return !S.cut && !e._myBld && (k === "feature" || k === "section" || (k === "building" && !hasSectionGeom(e)));
+  }
   if (v === "house") {
     if (e._inUnit) return ["wall", "space", "opening", "unit"].includes(k);
     if (e._myBld && e._floor && ["unit", "space", "mep"].includes(k)) return true;   // соседи, общие зоны, щиток этажа
@@ -850,11 +863,28 @@ function visibleIn(e) {
   return k === "feature" || k === "section" || (k === "building" && !hasSectionGeom(e));
 }
 
+// небо за окнами квартиры (вид под потолком) — по времени суток: высота солнца из sun.sun в HA; ?sky=day|dusk|night —
+// вручную (снимки хозяев для сверки сделаны в сумерки). В остальных видах фон — цвет страницы
+const SKY = { day: new THREE.Color(0xd3dbe4), dusk: new THREE.Color(0x56677e), night: new THREE.Color(0x1b2230) };
+function paintSky() {
+  if (!(S.view === "unit" && !S.cut)) { scene.background = null; return invalidate(); }
+  let c = SKY[QS.get("sky")];
+  if (!c) {
+    const el = Number(S.states["sun.sun"]?.attributes?.elevation);
+    if (!Number.isFinite(el)) c = SKY.day;
+    else if (el >= 6) c = SKY.day;
+    else if (el <= -6) c = SKY.night;
+    else c = el >= 0 ? SKY.dusk.clone().lerp(SKY.day, el / 6) : SKY.dusk.clone().lerp(SKY.night, -el / 6);
+  }
+  scene.background = c;
+  invalidate();
+}
+
 function applyView() {
   const cut = S.view === "unit" && S.cut;
   // глубина: в виде квартиры ближняя и дальняя плоскости ближе друг к другу — точнее буфер глубины (иначе за тонкой
   // стеной проступает силуэт вещи из соседней комнаты)
-  Object.assign(camera, S.view === "unit" ? { near: 0.05, far: 300 } : { near: 0.3, far: 5000 });
+  Object.assign(camera, S.view === "unit" ? { near: 0.05, far: 800 } : { near: 0.3, far: 5000 });   // 800 — дома за окнами
   camera.updateProjectionMatrix();
   for (const [id, o] of S.obj) {
     const e = S.by.get(id);
@@ -891,7 +921,10 @@ function applyView() {
   }
   for (const p of helpersLight.children) p.visible = S.view === "unit" && p.material.uniforms.k.value > 0;
   backdrop.visible = S.view !== "unit";
-  ceilings.visible = S.view === "unit" && !cut;
+  ceilings.visible = outside.visible = S.view === "unit" && !cut;
+  // под потолком (квартира без среза) солнца сверху нет: свет как от ламп — рассеянный и ровный
+  [sun.intensity, hemi.intensity, scene.environmentIntensity] = S.view === "unit" && !cut ? INSIDE_LIGHT : OUTSIDE_LIGHT;
+  paintSky();
   world.updateMatrixWorld(true);
   document.querySelectorAll("#views button").forEach(b => b.classList.toggle("on", b.dataset.view === S.view));
   $("#t-cut").classList.toggle("on", S.cut);
@@ -1646,11 +1679,13 @@ function connect() {
     if (m.type === "hello" || m.type === "states") {
       S.states = m.states || {};
       S.ha = m.ha || S.ha;
+      paintSky();
       if (m.version != null && m.version !== S.ver) reload(S.sel?.id);
       else { paintDevices(); if (S.sel) refreshHa(S.sel); }
       status();
     } else if (m.type === "state") {
       if (m.s) S.states[m.id] = m.s; else delete S.states[m.id];
+      if (m.id === "sun.sun") paintSky();
       paintDevices(m.id);
       if (S.sel && (bound(S.sel).includes(m.id))) refreshHa(S.sel);
     } else if (m.type === "twin" && m.version !== S.ver) reload(S.sel?.id);
