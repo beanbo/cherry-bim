@@ -149,3 +149,12 @@ form.doc label { display: flex; gap: 6px; align-items: center; }
   #status { display: none; }
 }
 .row a { align-self: center; }
+
+/* подписи режиссёра (director.js) поверх сцены */
+#dov { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+/* ?tv=1 — экран телевизора: только сцена во весь кадр, тёмный фон, камеру ведёт режиссёр */
+body.tv { display: block; background: #0b0d12; }
+body.tv #bar, body.tv #card, body.tv #status, body.tv #toast, body.tv #labels { display: none !important; }
+body.tv #stage { position: fixed; inset: 0; }
+body.tv #c { background: radial-gradient(ellipse at 50% 44%, #2b3242 0%, #171b24 52%, #0b0d12 100%); cursor: none; }

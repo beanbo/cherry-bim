@@ -12,6 +12,7 @@ import { buildFamily } from "./families.js";
 import { fixture } from "./furnishings.js";
 import { Kit } from "./kit.js";
 import { M, pbr, hex } from "./materials.js";
+import { createDirector } from "./director.js";
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);                  // как в модели: Z вверх, метры
 
@@ -71,12 +72,15 @@ const FMT = { "application/pdf": "PDF", "text/html": "страница", "image/
 const HIDDEN_MEP = new Set(["cable", "pipe_pair", "water_riser", "duct"]);   // в стенах и стяжке: видны в режиме «Инженерия»
 const CUT = 1.15;                                         // срез стен над полом квартиры, м
 const QS = new URLSearchParams(location.search);          // ?ao=0 — без затенения углов, ?shadows=0 — без теней, ?msaa=0
+// ?tv=1 — экран телевизора: без панелей, камеру ведёт режиссёр (director.js), тёмный фон; кадр 1:1 к пикселям
+const TV = QS.get("tv") === "1";
+if (TV) document.body.classList.add("tv");
 
 // ── сцена ───────────────────────────────────────────────────────────────────
 const canvas = $("#c");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, powerPreference: "high-performance" });
 renderer.setClearColor(0x000000, 0);                     // фон — цвет темы под холстом (CSS), тонмаппинг его не трогает
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setPixelRatio(TV ? 1 : Math.min(window.devicePixelRatio || 1, 2));
 renderer.shadowMap.enabled = QS.get("shadows") !== "0";
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.NeutralToneMapping;
@@ -1007,22 +1011,48 @@ function fly(pos, target) {
   invalidate();
 }
 
+// ── режиссёр: камера, которая сама ведёт показ (облёт, перелёты, полёт по трубам) ──
+const director = createDirector({
+  S, scene, camera, controls, COL, invalidate,
+  now: () => performance.now(),
+  select: (id, o) => select(id, o), highlight: (o, c, see) => highlight(o, c, see), clearHighlight: () => clearHighlight(),
+  applyView: () => applyView(), meshFor: id => meshFor(id), ancestors: id => ancestors(id), mat4: e => mat4(e),
+  floorZ: () => (S.unit ? floorWorldZ(S.unit) : 0),
+});
+const overlayCanvas = $("#dov");
+function drawOverlay() {                                  // подписи режиссёра поверх сцены (в браузере)
+  if (!overlayCanvas || capturing) return;
+  const w = canvas.width, h = canvas.height;
+  if (overlayCanvas.width !== w || overlayCanvas.height !== h) { overlayCanvas.width = w; overlayCanvas.height = h; }
+  const g = overlayCanvas.getContext("2d");
+  g.clearRect(0, 0, w, h);
+  if (director.active) director.overlay.draw(g, w, h);
+}
+let capturing = false;                                    // кадры заказывает поток (capture.js), а не экран
+
 // ── кадр: рисуем только когда что-то изменилось (бережём батарею телефона) ──
+// now — мс; force — нарисовать, даже если ничего не менялось (поток шлёт кадр всегда)
 const v3 = new THREE.Vector3();
-renderer.setAnimationLoop(() => {
-  if (flight) {
-    const u = Math.min(1, (performance.now() - flight.t0) / 650), s = u * u * (3 - 2 * u);
-    camera.position.lerpVectors(flight.p0, flight.p1, s);
-    controls.target.lerpVectors(flight.q0, flight.q1, s);
-    if (u >= 1) flight = null;
-    dirty = true;
+function frame(now, force = false) {
+  if (director.tick(now)) dirty = true;
+  else {
+    if (flight) {
+      const u = Math.min(1, (now - flight.t0) / 650), s = u * u * (3 - 2 * u);
+      camera.position.lerpVectors(flight.p0, flight.p1, s);
+      controls.target.lerpVectors(flight.q0, flight.q1, s);
+      if (u >= 1) flight = null;
+      dirty = true;
+    }
+    if (controls.update()) dirty = true;
   }
-  if (controls.update()) dirty = true;
-  if (!dirty) return;
+  if (!dirty && !force) return false;
   dirty = false;
   const t0 = performance.now();
+  director.beforeRender();
   composer.render();
+  director.afterRender();
   quality(performance.now() - t0);
+  drawOverlay();
   const w = canvas.clientWidth, h = canvas.clientHeight;
   for (const l of S.labels) {
     const o = S.obj.get(l.id);
@@ -1034,7 +1064,24 @@ renderer.setAnimationLoop(() => {
     l.el.style.left = `${(v3.x * 0.5 + 0.5) * w}px`;
     l.el.style.top = `${(-v3.y * 0.5 + 0.5) * h}px`;
   }
-});
+  return true;
+}
+let manual = false;                                       // часы кадров снаружи: проверка сцен покадрово
+renderer.setAnimationLoop(now => { if (!capturing && !manual) frame(now); });
+
+// поток для телевизора: ?tv=1&capture=ws://… — кадры с подписями в кодировщик H.264 и по WebSocket на ПК
+async function startCapture(opt = {}) {
+  const { startCapture: run } = await import("./capture.js");
+  capturing = true;
+  try {
+    return await run({ ...opt, canvas, director, frame: (t, force) => frame(t, force), onStop: () => { capturing = false; invalidate(); } });
+  } catch (err) { capturing = false; throw err; }
+}
+async function snapshot(t) {
+  const { snapshot: snap } = await import("./capture.js");
+  return snap({ canvas, director, frame: (x, force) => frame(x, force), t });
+}
+Object.assign(window.cherrybim, { director, frame, startCapture, snapshot, manual: on => { manual = !!on; } });
 
 // качество под устройство: если кадр стабильно дольше 30 мс, сначала без затенения углов, потом пикселей меньше.
 // С ?ao=0 или ?ao=1 в адресе качество не меняется само.
@@ -1710,6 +1757,7 @@ async function reload(keepId, flyTo = false) {
   camera.position.copy(cam.p);
   controls.target.copy(cam.t);
   status();
+  if (director.active) { director.onRebuild(); return; }  // показ продолжается на новых данных
   const id = keepId && S.by.has(keepId) ? keepId : null;
   if (id) select(id, { fly: flyTo }); else if (S.sel) select(null);
 }
@@ -1729,8 +1777,11 @@ async function start() {
     if (want) { const e = S.by.get(want) || S.data.entities.find(x => x.key === want); if (e) select(e.id); }
     if (p.get("q")) { q.value = p.get("q"); doSearch(); }
     connect();
+    if (TV) { controls.enabled = false; resize(); if (QS.get("autoplay") === "1") director.play({ op: "overview" }); }
+    window.cherrybim.ready = true;
   } catch (err) {
     $("#stxt").textContent = "Не загрузилось: " + err.message;
+    window.cherrybim.error = err.message;
   }
 }
 start();
