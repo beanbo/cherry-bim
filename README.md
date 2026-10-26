@@ -4,7 +4,7 @@
 
 *Open-source core for residential digital twins, from a city block down to a drawer. A compact JSON model aligned with IFC 4.3, GeoJSON/IMDF, CityJSON and Brick. Python (pydantic) is the source of truth, JSON Schema serves other languages, and IFC4 export goes through IfcOpenShell. Docs are in Russian.*
 
-> Статус: v0.3, ранняя версия. Формат может меняться до 1.0.
+> Статус: v0.5, ранняя версия. Формат может меняться до 1.0.
 
 ## Зачем
 
@@ -38,6 +38,7 @@
   - JSON Schema и словарь типов (`schema/kinds.json`: подтип → русское название → класс IFC).
 - **Документы у вещей**: инструкции, проект и чертежи, чеки, гарантии, страницы магазина — со ссылкой и локальной копией (PDF, файл, копия страницы); закрытые номера вещи (IMEI, серийный) — вне поиска и голоса.
 - **Импорт мебели** из OpenFurnitureMaker (конструктор корпусной мебели): каждый ящик и отделение шкафа становятся местом хранения. Пакет `ofm` нужен на `sys.path`.
+- **Мебель из БАЗИС-Мебельщика**: скрипт `tools/bazis/cherrybim-export.js` выгружает модель `.b3d` (панели с вырезами, петли, направляющие, отверстия под ручки), `io_bazis` строит из неё мебель по деталям, двери с петлями, ящики, ручки и места хранения по ячейкам корпуса.
 
 ## Быстрый старт
 

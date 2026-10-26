@@ -19,7 +19,7 @@ const VARIANTS = { variants: true };   // проём: две сборки — ц
 // ceil (высота потолка квартиры), floorZ(e) (высота начала сущности над полом квартиры), own(e) (свой материал
 // устройства, его красит состояние HA). Возвращает Group в системе сущности или null — тогда рисует просмотрщик.
 export function buildFamily(e, env) {
-  const fn = F[`${e.kind}.${e.type}`] || F[`${e.kind}.*`];
+  const fn = e.kind === "furniture" && Array.isArray(e.props?.render?.parts) ? PARTS : F[`${e.kind}.${e.type}`] || F[`${e.kind}.*`];
   if (!fn) return null;
   const g = e.geom || {};
   const ctx = context(e, env);
@@ -422,6 +422,36 @@ fam("furniture.wardrobe", ({ kit, e, env, size: [W, D, H], mat, r }) => {
   for (let i = 0; i + 1 < secs.length; i++) if (secs[i + 1][0] - secs[i][1] > 0.005) kit.box(body, secs[i][1], 0.02, socle + t, secs[i + 1][0], D - 0.004, H - t);
 });
 
+// ── мебель по деталям проекта ───────────────────────────────────────────────
+// props.render.parts — панели из проекта (импорт БАЗИС-Мебельщика, cherrybim.io_bazis): коробка {b: [x0, y0, z0, x1, y1,
+// z1]}, контур {p, ax, d, h}, выдавленный по оси толщины ax от d[0] до d[1], или цилиндр {cyl: [x, y, z0, z1, r]} (опоры);
+// m — роль и ключ цвета ("body", "front", "back", "legs"…). render.handles_at — ручки по отверстиям под них: концы {x: [x0, x1], z: [z0, z1]}, лицо фасада y, точки
+// крепления posts, ширина w и вылет d. Места хранения внутри такой мебели не рисуют ничего, кроме штанги.
+function PARTS({ kit, mat, r }) {
+  const body = mat("body", M.hickory), mats = new Map();
+  const of = k => {
+    if (!mats.has(k)) mats.set(k, k === "body" ? body : k === "back" ? mat("back", M.white, "matte") : mat(k, body));
+    return mats.get(k);
+  };
+  for (const p of r.parts) {
+    const m = of(p.m || "body");
+    if (p.b) { kit.box(m, ...p.b); continue; }
+    if (p.cyl) { const [x, y, z0, z1, rad] = p.cyl; kit.cylZ(m, x, y, z0, z1, rad, 16); continue; }   // опора, ножка
+    const [d0, d1] = p.d, holes = p.h || [];
+    if (p.ax === "z") kit.prism(m, p.p, d0, d1, holes);
+    else if (p.ax === "y") kit.profileY(m, p.p, d0, d1, holes);
+    else kit.profileX(m, p.p, d0, d1, holes);
+  }
+  const hm = mat("handle", M.black, "metal");
+  for (const h of r.handles_at || []) {                    // скоба: перекладина ≤ 8 мм толщиной и ножки до фасада
+    const w = h.w ?? 0.008, t = Math.min(w, 0.008), yf = h.y ?? 0, yb = yf - (h.d ?? 0.028);
+    const [xa, xb] = h.x, [za, zb] = h.z;
+    if (Math.abs(zb - za) >= Math.abs(xb - xa)) kit.box(hm, xa - w / 2, yb, za, xa + w / 2, yb + t, zb);
+    else kit.box(hm, xa, yb, za - w / 2, xb, yb + t, za + w / 2);
+    for (const [x, z] of h.posts || []) kit.box(hm, x - w / 2, yb + t, z - w / 2, x + w / 2, yf, z + w / 2);
+  }
+}
+
 fam("furniture.kitchen_unit", ({ kit, e, env, size: [W, D, H], mat, r }) => {
   // нижние (у пола, до 1 м): цоколь, корпус, столешница; навесные и колонны — корпус. Фасады рисуют места
   // хранения и встроенная техника; где фасада нет — глухая панель.
@@ -593,6 +623,10 @@ fam("storage.*", ({ kit, e, env, size: [W, D, H], r }) => {
   const furn = furnitureOf(e, env);
   const fr = furn ? furn.props?.render || {} : {};
   const kind = r.front ?? defaultFront(e, furn);
+  if (Array.isArray(fr.parts)) {                           // мебель по деталям: корпус, полки и ящики уже нарисованы
+    if (kind === "rod") kit.rod(M.chrome, [0.005, D / 2, H - (r.rod_drop ?? 0.06)], [W - 0.005, D / 2, H - (r.rod_drop ?? 0.06)], 0.0125, 16);
+    return;
+  }
   const yf = frontOffset(e, env) + (r.setback ?? 0);       // плоскость фасада мебели в системе места (render.setback — утоплен)
   const colors = { ...(fr.colors || {}), ...(r.colors || {}) };
   const frontMat = hex(colors.front, null) != null ? satinOf(colors.front, fr.finish)
