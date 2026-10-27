@@ -1,11 +1,13 @@
 // Cherry BiM — режиссёр показа: камера сама ведёт зрителя по двойнику. Облёт квартиры, перелёт в комнату, полёт
 // над трубами на высоте глаз, подход к вещи с подсветкой.
 //
-// Кадр складывается из планов (облёт по кругу, качание вокруг цели, полёт по пути) и переходов между ними. Переход
-// ведёт камеру по дуге вокруг движущейся цели: цель едет по прямой, расстояние меняется по логарифму, азимут — по
-// кратчайшему углу; на дальних перелётах камера отъезжает и поднимается («кран»), потом снова подходит. Вес перехода
-// — кривая минимального рывка (скорость и ускорение на краях нулевые), поэтому нет ни толчка на старте, ни дёрганья в
-// конце, а начатое движение (облёт) продолжается внутри перехода.
+// Кадр складывается из планов (облёт по кругу, качание вокруг цели, полёт по пути) и переходов между ними. Переход —
+// оптимальный перелёт «панорама + наезд»: цель едет по прямой, расстояние до неё меняется так, что картинка бежит
+// перед глазами с постоянной скоростью (на дальнем перелёте камера сама отъезжает и поднимается, потом подходит),
+// азимут — по кратчайшему углу. Вес перехода — кривая минимального рывка (скорость и ускорение на краях нулевые),
+// поэтому нет ни толчка на старте, ни дёрганья в конце, а начатое движение (облёт) продолжается внутри перехода.
+// Длительность каждого перехода подбирается проигрышем так, чтобы скорость, ускорение и поворот взгляда нигде не
+// выходили за пороги (fitT); полёт по пути замедляется там, где разворачивается взгляд (gazeCap).
 // Сцены («покажи отопление») — последовательность планов с титрами, подписями у вещей, мини-планом и полосами кино.
 // Всё поверх кадра рисует свой 2D-холст: в браузере — слоем над сценой, в режиме ТВ — склейкой с кадром для потока.
 import * as THREE from "three";
@@ -18,6 +20,19 @@ const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const lerp = (a, b, w) => a + (b - a) * w;
 const smooth = (a, b, x) => { const u = clamp((x - a) / (b - a), 0, 1); return u * u * (3 - 2 * u); };
 const mj = u => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * u * (10 - 15 * u + 6 * u * u));   // минимальный рывок
+const mjI = y => y * y * y * y * (2.5 - 3 * y + y * y);                                // ∫₀ʸ mj
+// Гладкая трапеция для долгих переходов: разгон и торможение — по кривой минимального рывка (доля rho времени
+// каждое), посередине — ровная скорость. Пик скорости — 1/(1−rho) от средней (у одной кривой минимального рывка —
+// 1,875), поэтому дальний перелёт при тех же порогах на четверть короче. rho = 0 — обычная кривая
+function ease(u, rho) {
+  if (!rho) return mj(u);
+  if (u <= 0) return 0;
+  if (u >= 1) return 1;
+  const k = 1 / (1 - rho);
+  if (u < rho) return k * rho * mjI(u / rho);
+  if (u > 1 - rho) return 1 - k * rho * mjI((1 - u) / rho);
+  return k * (rho / 2 + u - rho);
+}
 const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
 const fmtArea = a => `${(Math.round(a * 10) / 10).toString().replace(".", ",")} м²`;
 
@@ -63,70 +78,154 @@ class Still {
 // Полёт по пути на высоте глаз: путь сглажен дугами в углах, скорость — по заранее рассчитанному профилю (разгон,
 // торможение в поворотах и у приборов, остановка перед концом). Взгляд — вперёд по пути на look метров, к прибору,
 // мимо которого летим, камера поворачивает голову; в поворотах — лёгкий крен.
+const LOOK = [[0.55, 1 / 9], [0.8, 2 / 9], [1, 3 / 9], [1.2, 2 / 9], [1.45, 1 / 9]];   // точки взгляда: доля look, вес
 class Glide {
-  constructor({ path, prof, z, look = 2.4, pois = [], end = null, t0 = 0, delay = 0, fov = 58, side = null }) {
-    Object.assign(this, { path, prof, z, look, pois, end, t0, delay, fov, side });
+  constructor({ path, prof, z, look = 2.4, pois = [], end = null, start = null, t0 = 0, delay = 0, fov = 52, side = null }) {
+    Object.assign(this, { path, prof, z, look, pois, end, start, t0, delay, fov, side });
     this.kind = "glide";
     this.dur = delay + prof.dur;
-    this._a = new V3(); this._b = new V3(); this._c = new V3(); this._o = new V3();
+    this._c = new V3(); this._o = new V3(); this._d = new V3();
+    // крен в поворот: боковое ускорение v²/r со знаком поворота. На входе в дугу кривизна меняется скачком —
+    // крен считается заранее по всему пути и сглаживается вдоль него (три прохода по ±0,35 м), иначе горизонт
+    // дёргался бы на 2°
+    const ds = 0.05, n = Math.max(2, Math.ceil(path.len / ds) + 1);
+    let roll = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const s = path.len * i / (n - 1), r = path.radAt(s), v = prof.vAtS(s);
+      roll[i] = r < Infinity ? clamp(-path.turnAt(s) * v * v / r * 0.09, -rad(2.5), rad(2.5)) : 0;
+    }
+    const k = Math.max(1, Math.round(0.35 / ds));
+    for (let pass = 0; pass < 3; pass++) {
+      const src = roll;
+      roll = src.map((_, i) => {
+        let m = 0, c = 0;
+        for (let j = Math.max(0, i - k); j <= Math.min(n - 1, i + k); j++) { m += src[j]; c++; }
+        return m / c;
+      });
+    }
+    this.rolls = roll;
   }
+  // полёт трогается не сразу: переход к нему длинный — камера сначала долетает до начала пути
+  setDelay(d) { this.delay = d; this.dur = d + this.prof.dur; }
   s(t) { return this.prof.sAt(t - this.t0 - this.delay); }
+  rollAt(s) {
+    const R = this.rolls, L = R.length - 1, x = clamp(s / Math.max(this.path.len, 1e-6), 0, 1) * L, i = Math.min(Math.floor(x), L - 1);
+    return cr(R[Math.max(0, i - 1)], R[i], R[i + 1], R[Math.min(L, i + 2)], x - i);
+  }
   pose(t, out) {
-    const { path } = this, s = this.s(t), P = this._a, Q = this._b;
-    path.at(s, P);
-    let rise = 0;
-    if (this.side) { const o = this.side.at(s, this._o); rise = o.z; P.x += o.x; P.y += o.y; }   // сбоку от трубы
-    const bob = 0.008 * Math.sin(TAU * (t - this.t0) / 4.1);       // дрон держит высоту не идеально
-    out.p.set(P.x, P.y, this.z + rise + bob);
-    // вперёд по пути; у конца цель съезжает на прибор в конце
-    const ahead = Math.min(path.len, s + this.look);
-    path.at(ahead, Q);
-    if (this.end) {
-      const k = smooth(path.len - this.look - 1.2, path.len - 0.3, s + this.look * 0.6);
-      Q.lerp(this.end.c, k);
-    }
-    // приборы по пути: голова поворачивается к ним, пока пролетаем мимо
-    let g = 0;
-    for (const poi of this.pois) {
-      if (poi === this.end) continue;
-      const d = poi.s - s;
-      const w = smooth(3.2, 1.0, d) * smooth(-1.4, -0.2, d) * 0.6;
-      if (w > g) { g = w; this._c.copy(poi.c); }
-    }
-    if (g > 0) Q.lerp(this._c, g);
-    out.q.copy(Q);
+    const s = this.s(t);
+    this.posAt(s, out.p);
+    out.p.z += 0.008 * Math.sin(TAU * (t - this.t0) / 4.1);       // дрон держит высоту не идеально
+    this.lookAt(s, out.q);
     out.fov = this.fov;
-    // крен в поворот: боковое ускорение v²/r со знаком поворота
-    const v = this.prof.vAt(t - this.t0 - this.delay), r = path.radAt(s);
-    out.roll = r < Infinity ? clamp(-path.turnAt(s) * v * v / r * 0.09, -rad(2.5), rad(2.5)) : 0;
+    out.roll = this.rollAt(s);
     return out;
   }
+  // где камера в точке пути s: над трубой, сбоку от неё, над стенами — выше
+  posAt(s, P) {
+    this.path.at(s, P);
+    let rise = 0;
+    if (this.side) { const o = this.side.at(s, this._o); rise = o.z; P.x += o.x; P.y += o.y; }
+    P.z = this.z + rise;
+    return P;
+  }
+  // куда смотрит камера в точке пути s
+  lookAt(s, Q) {
+    const { path } = this;
+    // вперёд по пути: среднее нескольких точек впереди (0,55…1,45 look) — на поворотах взгляд разворачивается
+    // заранее и плавно, а не вслед за одной точкой, которая резко уходит за угол. За концом пути — дальше по
+    // последнему направлению (иначе у конца ноги без прибора взгляд упирался бы в точку под камерой и камера кивала
+    // вниз); у конца цель съезжает на прибор в конце
+    Q.set(0, 0, 0);
+    for (const [f, w] of LOOK) {
+      const at = s + this.look * f;
+      path.at(Math.min(path.len, at), this._d);
+      if (at > path.len) this._d.addScaledVector(path.dirEnd, at - path.len);
+      Q.addScaledVector(this._d, w);
+    }
+    if (this.end) {                                        // разворот к прибору в конце — растянут на ~3 м пути
+      const k = smooth(path.len - this.look - 2.6, path.len - 0.3, s + this.look * 0.6);
+      Q.lerp(this.end.c, k);
+    }
+    // приборы по пути: голова поворачивается к ним, пока пролетаем мимо. Несколько рядом — взгляд между ними по
+    // весам: каждый вес плавный, а «самый близкий прибор» сменился бы скачком, и взгляд прыгнул бы с одного на другой.
+    // Прибор, с которого нога начинается (узел ввода), уже показан — к нему не оборачиваемся
+    const c = this._c.set(0, 0, 0);
+    let wsum = 0, miss = 1;
+    for (const poi of this.pois) {
+      if (poi === this.end || poi === this.start) continue;
+      const d = poi.s - s;
+      const w = smooth(3.2, 1.0, d) * smooth(-2.0, -0.2, d);
+      if (w <= 0) continue;
+      c.addScaledVector(poi.c, w);
+      wsum += w;
+      miss *= 1 - w;
+    }
+    if (wsum > 0) Q.lerp(c.divideScalar(wsum), 0.6 * (1 - miss));
+    return Q;
+  }
+}
+const NO_PROF = { dur: 0, len: 0, sAt: () => 0, vAt: () => 0, vAtS: () => 0 };
+// Предел скорости полёта по взгляду: где взгляд разворачивается на метр пути сильнее (шпилька трубы, разворот к
+// прибору, конец ветки), там камера летит медленнее — взгляд нигде не поворачивается быстрее wmax (рад/с). g — полёт
+// без профиля (только posAt/lookAt), отдаёт функцию «наибольшая скорость в точке s»
+function gazeCap(g, s1, wmax = 0.5) {
+  const n = Math.max(2, Math.ceil(s1 / 0.05) + 1), ds = s1 / (n - 1), caps = new Float64Array(n).fill(Infinity);
+  const P = new V3(), Q = new V3(), a = new V3(), b = new V3();
+  for (let i = 0; i < n; i++) {
+    g.posAt(ds * i, P); g.lookAt(ds * i, Q);
+    b.subVectors(Q, P).normalize();
+    if (i) {
+      const cap = wmax * ds / Math.max(1e-6, Math.acos(clamp(a.dot(b), -1, 1)));
+      caps[i - 1] = Math.min(caps[i - 1], cap);
+      caps[i] = Math.min(caps[i], cap);
+    }
+    a.copy(b);
+  }
+  return s => { const x = clamp(s / Math.max(s1, 1e-9), 0, 1) * (n - 1), i = Math.min(Math.floor(x), n - 2); return Math.min(caps[i], caps[i + 1]); };
 }
 
-// Переход: камера по дуге вокруг цели, из плана from в план to; оба продолжают двигаться внутри перехода
+// Оптимальный перелёт «панорама + наезд» (van Wijk, Nuij, 2003; так же d3.interpolateZoom): цель едет по прямой на
+// u1 метров, расстояние до неё меняется от w0 до w1 так, что картинка бежит перед глазами с постоянной скоростью —
+// на дальнем перелёте камера сама отъезжает (поднимается над квартирой) и потом подходит. s ∈ [0, 1] → доля пути
+// цели f и расстояние r
+const RHO = Math.SQRT2;
+function zoomPath(u1, w0, w1, s) {
+  const rho2 = RHO * RHO;
+  if (u1 < 1e-4) return { f: 0, r: w0 * Math.exp(Math.log(w1 / w0) * s) };   // цель на месте — только наезд
+  const b0 = (w1 * w1 - w0 * w0 + rho2 * rho2 * u1 * u1) / (2 * w0 * rho2 * u1);
+  const b1 = (w1 * w1 - w0 * w0 - rho2 * rho2 * u1 * u1) / (2 * w1 * rho2 * u1);
+  const r0 = Math.log(Math.sqrt(b0 * b0 + 1) - b0), r1 = Math.log(Math.sqrt(b1 * b1 + 1) - b1);
+  const x = s * (r1 - r0), c0 = Math.cosh(r0);
+  return { f: w0 / (rho2 * u1) * (c0 * Math.tanh(x + r0) - Math.sinh(r0)), r: w0 * c0 / Math.cosh(x + r0) };
+}
+const ZW = 1.2;                                             // ширина кадра ≈ 1,2 расстояния до цели (fov 40–52°)
+
+// Переход: из плана from в план to по оптимальному перелёту; азимут — по кратчайшему углу, наклон — плавно (на
+// дальнем — с подъёмом). Оба плана продолжают двигаться внутри перехода, поэтому начатое движение не обрывается
 class Blend {
   constructor(from, to, t0, T, lift) {
     Object.assign(this, { from, to, t0, T, lift });
     this.kind = "blend";
+    this.rho = T > 3.5 ? clamp(2.4 / T, 0.28, 0.45) : 0;   // долгий — с ровной серединой, разгон ~2,4 с
     this.A = pose(); this.B = pose();
     this._oa = new V3(); this._ob = new V3();
   }
   done(t) { return t >= this.t0 + this.T; }
   pose(t, out) {
-    const w = mj((t - this.t0) / this.T);
+    const w = ease((t - this.t0) / this.T, this.rho);
     if (w >= 1) return this.to.pose(t, out);
     const A = this.from.pose(t, this.A), B = this.to.pose(t, this.B);
     if (w <= 0) return copyPose(out, A);
-    out.q.lerpVectors(A.q, B.q, w);
     const oa = this._oa.subVectors(A.p, A.q), ob = this._ob.subVectors(B.p, B.q);
     const ra = Math.max(oa.length(), 0.3), rb = Math.max(ob.length(), 0.3);
     const aza = Math.atan2(oa.y, oa.x), azb = Math.atan2(ob.y, ob.x);
     const ela = Math.asin(clamp(oa.z / ra, -1, 1)), elb = Math.asin(clamp(ob.z / rb, -1, 1));
-    const bump = Math.sin(Math.PI * w);
-    const r = Math.exp(lerp(Math.log(ra), Math.log(rb), w)) * (1 + this.lift.k * bump);
+    const z = zoomPath(A.q.distanceTo(B.q), ra * ZW, rb * ZW, w);
+    out.q.lerpVectors(A.q, B.q, z.f);
     const az = aza + wrap(azb - aza) * w;
-    const el = clamp(lerp(ela, elb, w) + this.lift.el * bump, rad(-60), rad(84));
-    sph(out.q, r, az, el, out.p);
+    const el = clamp(lerp(ela, elb, w) + this.lift.el * Math.sin(Math.PI * w), rad(-60), rad(84));
+    sph(out.q, z.r / ZW, az, el, out.p);
     out.fov = lerp(A.fov, B.fov, w);
     out.roll = lerp(A.roll || 0, B.roll || 0, w);
     return out;
@@ -137,48 +236,70 @@ class Blend {
 function smoothPath(raw, rMax = 0.7) {
   const P = [];
   for (const p of raw) if (!P.length || P[P.length - 1].distanceTo(p) > 0.01) P.push(p.clone());
-  const pts = [P[0].clone()], rads = [Infinity], turn = [0];
+  const arcs = [P[0].clone()];
   for (let i = 1; i < P.length - 1; i++) {
     const A = P[i - 1], B = P[i], C = P[i + 1];
     const u = A.clone().sub(B), v = C.clone().sub(B);
     const la = u.length(), lc = v.length();
     u.normalize(); v.normalize();
     const th = Math.acos(clamp(u.dot(v), -1, 1));            // угол между направлениями на соседей
-    if (th > Math.PI - 0.03 || th < 0.05) { pts.push(B.clone()); rads.push(Infinity); turn.push(0); continue; }
+    if (th > Math.PI - 0.03 || th < 0.05) { arcs.push(B.clone()); continue; }
     const tl = Math.min(rMax / Math.tan(th / 2), 0.45 * la, 0.45 * lc);
     const r = tl * Math.tan(th / 2);
     const T1 = B.clone().addScaledVector(u, tl), T2 = B.clone().addScaledVector(v, tl);
     const O = B.clone().addScaledVector(u.clone().add(v).normalize(), r / Math.sin(th / 2));
     const a = T1.clone().sub(O), b = T2.clone().sub(O);
-    const ang = a.angleTo(b), n = Math.max(2, Math.ceil(ang * r / 0.03));
+    const ang = a.angleTo(b), n = Math.max(2, Math.ceil(ang * r / 0.01));
     const axis = new V3().crossVectors(a, b).normalize();
-    const side = Math.sign(new V3().crossVectors(B.clone().sub(A), C.clone().sub(B)).z) || 0;   // налево +, направо −
     const q = new THREE.Quaternion();
     for (let k = 0; k <= n; k++) {
       q.setFromAxisAngle(axis, ang * k / n);
-      pts.push(O.clone().add(a.clone().applyQuaternion(q)));
-      rads.push(r);
-      turn.push(side);
+      arcs.push(O.clone().add(a.clone().applyQuaternion(q)));
     }
   }
-  pts.push(P[P.length - 1].clone()); rads.push(Infinity); turn.push(0);
+  arcs.push(P[P.length - 1].clone());
+  // Ровный шаг 2 см и сглаживание (три прохода скользящего среднего ±12 см, концы на месте): на стыке прямой и дуги
+  // кривизна нарастает плавно, как на переходной кривой дороги, — боковое ускорение и крен включаются без толчка
+  let pts = resample(arcs, 0.02);
+  for (let pass = 0; pass < 3; pass++) {
+    const src = pts;
+    pts = src.map((p, i) => {
+      const h = Math.min(6, i, src.length - 1 - i);
+      if (!h) return p.clone();
+      const o = new V3();
+      for (let j = i - h; j <= i + h; j++) o.add(src[j]);
+      return o.divideScalar(2 * h + 1);
+    });
+  }
+  // кривизна по трём точкам через 10 см: радиус описанной окружности и сторона поворота (налево +, направо −)
+  const rads = new Array(pts.length).fill(Infinity), turn = new Array(pts.length).fill(0), m = 5;
+  for (let i = m; i < pts.length - m; i++) {
+    const A = pts[i - m], B = pts[i], C = pts[i + m];
+    const ab = B.clone().sub(A), bc = C.clone().sub(B), cross = new V3().crossVectors(ab, bc).length();
+    if (cross < 1e-9) continue;
+    const r = ab.length() * bc.length() * C.distanceTo(A) / (2 * cross);
+    if (r < 40) { rads[i] = r; turn[i] = Math.sign(ab.x * bc.y - ab.y * bc.x) || 0; }
+  }
   const S = [0];
   for (let i = 1; i < pts.length; i++) S.push(S[i - 1] + pts[i].distanceTo(pts[i - 1]));
   const len = S[S.length - 1];
+  const dirEnd = new V3();                                  // направление в конце пути (последний ненулевой отрезок)
+  for (let i = pts.length - 1; i > 0 && dirEnd.lengthSq() < 1e-12; i--) dirEnd.subVectors(pts[i], pts[i - 1]);
+  if (dirEnd.lengthSq() > 1e-12) dirEnd.normalize();
   const find = s => {                                       // индекс отрезка, на котором лежит s
     let lo = 0, hi = S.length - 1;
     while (hi - lo > 1) { const m = (lo + hi) >> 1; if (S[m] <= s) lo = m; else hi = m; }
     return lo;
   };
   return {
-    pts, len,
+    pts, len, dirEnd,
     at(s, out = new V3()) {
       s = clamp(s, 0, len);
       const i = Math.min(find(s), pts.length - 2), d = S[i + 1] - S[i];
       return out.lerpVectors(pts[i], pts[i + 1], d > 1e-9 ? (s - S[i]) / d : 0);
     },
-    radAt(s) { const i = find(clamp(s, 0, len)); return Math.min(rads[i], rads[Math.min(i + 1, rads.length - 1)]); },
-    turnAt(s) { const i = find(clamp(s, 0, len)); return turn[i] || turn[Math.min(i + 1, turn.length - 1)]; },
+    radAt(s) { return rads[find(clamp(s, 0, len))]; },
+    turnAt(s) { return turn[find(clamp(s, 0, len))]; },
     // ближайшая точка пути к p (по плану): {s, d}
     nearest(p) {
       let best = { s: 0, d: Infinity };
@@ -194,17 +315,35 @@ function smoothPath(raw, rMax = 0.7) {
   };
 }
 
-// профиль скорости вдоль пути: не быстрее vmax, в поворотах — по боковому ускорению, у приборов — медленнее;
-// разгон и торможение не резче acc; сглажен, чтобы не было толчков
-function speedProfile(path, { vmax = 0.9, acc = 0.5, alat = 0.42, slow = [], s1 = path.len } = {}) {
-  const ds = 0.04, n = Math.max(3, Math.ceil(s1 / ds) + 1);
+// точки ломаной через ровный шаг h (последняя — конец ломаной)
+function resample(pts, h) {
+  const out = [pts[0].clone()];
+  let carry = 0;                                           // сколько пройдено от последней выданной точки
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i], seg = a.distanceTo(b);
+    let pos = h - carry;
+    for (; pos <= seg; pos += h) out.push(a.clone().lerp(b, pos / seg));
+    carry = seg - (pos - h);
+  }
+  if (out[out.length - 1].distanceTo(pts[pts.length - 1]) > 1e-4) out.push(pts[pts.length - 1].clone());
+  return out;
+}
+
+// профиль скорости вдоль пути: не быстрее vmax, в поворотах — по боковому ускорению и по скорости разворота (v/r —
+// столько же разворачивается и взгляд), у приборов — медленнее; разгон и торможение не резче acc; сглажен, чтобы не
+// было толчков
+function speedProfile(path, { vmax = 0.9, acc = 0.5, jerk = 0.8, alat = 0.35, turn = 0.62, slow = [], s1 = path.len, cap = null } = {}) {
+  const ds = 0.02, n = Math.max(3, Math.ceil(s1 / ds) + 1);
   const S = new Float64Array(n), V = new Float64Array(n);
+  // трогается и останавливается с нарастающим ускорением (рывок не больше jerk): с места при постоянном рывке
+  // v = (j/2)·(6s/j)^(2/3)
+  const ramp = s => (jerk / 2) * Math.pow(6 * Math.max(0, s) / jerk, 2 / 3);
   for (let i = 0; i < n; i++) {
     const s = s1 * i / (n - 1);
     S[i] = s;
-    let v = vmax;
+    let v = Math.min(cap ? Math.min(vmax, cap(s)) : vmax, ramp(s), ramp(s1 - s));
     const r = path.radAt(s);
-    if (r < Infinity) v = Math.min(v, Math.sqrt(alat * r));
+    if (r < Infinity) v = Math.min(v, Math.sqrt(alat * r), turn * r);
     for (const p of slow) {
       const d = Math.abs(s - p.s);
       if (d < p.w) v = Math.min(v, lerp(p.v, vmax, smooth(0, p.w, d)));
@@ -225,18 +364,26 @@ function speedProfile(path, { vmax = 0.9, acc = 0.5, alat = 0.42, slow = [], s1 
   for (let i = 1; i < n; i++) T[i] = T[i - 1] + (S[i] - S[i - 1]) / Math.max(0.03, (V[i] + V[i - 1]) / 2);
   const dur = T[n - 1];
   const idx = t => { let lo = 0, hi = n - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (T[m] <= t) lo = m; else hi = m; } return lo; };
+  // внутри шага — равноускоренно, скорость от V[i] до V[i+1] без ступенек (s по прямой давала бы скачок скорости
+  // на каждом шаге в 4 см, на разгоне — до 0,1 м/с за кадр)
+  const seg = t => { const i = idx(t), dt = Math.max(1e-9, T[i + 1] - T[i]); return [i, dt, t - T[i], (S[i + 1] - S[i]) / dt]; };
   return {
     dur, len: s1,
     sAt(t) {
       if (t <= 0) return 0;
       if (t >= dur) return s1;
-      const i = idx(t), u = (t - T[i]) / Math.max(1e-9, T[i + 1] - T[i]);
-      return lerp(S[i], S[i + 1], u);
+      const [i, dt, tau, vm] = seg(t);
+      return S[i] + V[i] * tau + (vm - V[i]) * tau * tau / dt;
     },
     vAt(t) {
       if (t <= 0 || t >= dur) return 0;
-      const i = idx(t);
-      return lerp(V[i], V[i + 1], (t - T[i]) / Math.max(1e-9, T[i + 1] - T[i]));
+      const [i, dt, tau, vm] = seg(t);
+      return V[i] + 2 * (vm - V[i]) * tau / dt;
+    },
+    vAtS(s) {                                               // скорость в точке пути
+      if (s <= 0 || s >= s1) return 0;
+      const x = s / s1 * (n - 1), i = Math.min(Math.floor(x), n - 2);
+      return lerp(V[i], V[i + 1], x - i);
     },
   };
 }
@@ -290,14 +437,22 @@ function lateral(path, polys, { max = 0.95, share = 0.5, win = 1.3 } = {}) {
       return m / c;
     });
   }
+  const L = cur.length - 1;
   return {
+    // между отсчётами — сплайн, а не отрезки: у ломаной скорость камеры ступенькой менялась бы на каждом отсчёте
     at(s, out = new V3()) {
-      const x = clamp(s / Math.max(path.len, 1e-6), 0, 1) * (cur.length - 1), i = Math.min(Math.floor(x), cur.length - 2);
-      out.lerpVectors(cur[i], cur[i + 1], x - i);
-      out.z = 0.6 * lerp(lift[i], lift[i + 1], x - i);
+      const x = clamp(s / Math.max(path.len, 1e-6), 0, 1) * L, i = Math.min(Math.floor(x), L - 1), u = x - i;
+      const a = Math.max(0, i - 1), b = i, c = i + 1, d = Math.min(L, i + 2);
+      out.set(cr(cur[a].x, cur[b].x, cur[c].x, cur[d].x, u), cr(cur[a].y, cur[b].y, cur[c].y, cur[d].y, u),
+              0.6 * cr(lift[a], lift[b], lift[c], lift[d], u));
       return out;
     },
   };
+}
+// Катмулл — Ром по равномерным отсчётам: значение и производная непрерывны
+function cr(a, b, c, d, u) {
+  const u2 = u * u;
+  return 0.5 * (2 * b + (c - a) * u + (2 * a - 5 * b + 4 * c - d) * u2 + (3 * b - a - 3 * c + d) * u2 * u);
 }
 function segDist(p, a, b) {
   const ex = b.x - a.x, ey = b.y - a.y, l2 = ex * ex + ey * ey;
@@ -406,7 +561,7 @@ export function createDirector(api) {
   const D = {
     active: false, wall: 0, t: 0, held: 0, shot: null, beats: [], beat: -1, beatEnd: Infinity, paused: false,
     focus: null, op: null, cmd: null, mepWas: null, fx: new THREE.Group(), flows: [], glows: [], fade: new Map(),
-    tint: new Map(), aspect: 16 / 9,
+    tint: new Map(), aspect: 16 / 9, fits: [],
   };
   const clock = now => {
     const w = now / 1000;
@@ -572,10 +727,13 @@ export function createDirector(api) {
   }
 
   // ── переходы ────────────────────────────────────────────────────────────
+  // дальний перелёт: отъезд даёт сам оптимальный перелёт, а наклон ещё и приподнимается — сверху над срезом стен
+  // видно, куда летим. «Дальний» — по сравнению с тем, откуда смотрим: из комнаты в комнату на высоте глаз — да,
+  // с общего плана в комнату — нет (камера и так высоко)
   function liftFor(a, b) {
     const travel = a.q.distanceTo(b.q);
-    const k = smooth(1.5, 9, travel);
-    return { k: 0.42 * k, el: rad(13) * k, travel };
+    const r = Math.max(0.5, Math.min(a.p.distanceTo(a.q), b.p.distanceTo(b.q)));
+    return { el: rad(16) * smooth(0.6, 3.2, travel / r), travel };
   }
   function autoT(a, b, lift) {
     const oa = a.p.clone().sub(a.q), ob = b.p.clone().sub(b.q);
@@ -583,11 +741,60 @@ export function createDirector(api) {
     const dr = Math.abs(Math.log(Math.max(ob.length(), 0.3) / Math.max(oa.length(), 0.3)));
     return clamp(1.7 + 0.24 * lift.travel + 0.5 * daz + 0.65 * dr, 1.9, 5.4);
   }
+  // Длительность перехода: не меньше заданной и такая, чтобы на всём пути камера не неслась и не крутила головой
+  // быстрее порогов. Скорость — в долях расстояния до того, на что смотрим (издалека тот же метр в секунду глаз почти
+  // не замечает, у стены на высоте глаз — «бросает»), причём движение прямо на цель или от неё (наезд) весит в √2
+  // раз меньше бокового — как в оптимальном перелёте; поворот взгляда и наезд объективом — в градусах в секунду.
+  // Переход проигрывается заранее по 90 точкам; скорости в нём ~1/T, поэтому T растягивается на худшее превышение.
+  const LIM = { v: 0.5, a: 0.45, w: rad(30), fov: 7 };
+  const _fa = new V3(), _fb = new V3(), _acc = new V3(), _dp = new V3();
+  // видимая скорость: боковая часть целиком, часть вдоль взгляда — с весом 1/√2; в долях расстояния
+  const seen = (a, b, dt) => {
+    const f = _fa.subVectors(a.q, a.p), dist = Math.max(0.9, f.length());
+    f.divideScalar(dist);
+    const d = _dp.subVectors(b.p, a.p), along = d.dot(f), side = Math.sqrt(Math.max(0, d.lengthSq() - along * along));
+    return Math.hypot(side, along / RHO) / dt / dist;
+  };
+  // prep(T) — подготовить план к переходу длиной T (полёт по трубе трогается к концу перехода)
+  function fitT(from, to, t0, T, lift, prep = null) {
+    const a = pose(), b = pose(), z = pose(), log = { T0: T, steps: [] };
+    for (let it = 0; it < 5; it++) {
+      prep?.(T);
+      const bl = new Blend(from, to, t0, T, lift), N = 90, dt = T / N;
+      const m = { T, v: 0, a: 0, w: 0, f: 0, at: {} };
+      bl.pose(t0 - dt, z);
+      bl.pose(t0, a);
+      for (let i = 1; i <= N; i++) {
+        bl.pose(t0 + dt * i, b);
+        const dist = Math.max(0.9, Math.min(a.p.distanceTo(a.q), b.p.distanceTo(b.q)));
+        const k = {
+          v: Math.max(seen(a, b, dt), seen(b, a, dt)) / LIM.v,
+          // ускорение — тоже в долях расстояния; растёт как 1/T², поэтому его превышение тянет T только на корень
+          a: Math.sqrt(_acc.copy(b.p).sub(a.p).sub(a.p).add(z.p).length() / (dt * dt) / dist / LIM.a),
+          w: Math.acos(clamp(_fa.subVectors(a.q, a.p).normalize().dot(_fb.subVectors(b.q, b.p).normalize()), -1, 1)) / dt / LIM.w,
+          f: Math.abs(b.fov - a.fov) / dt / LIM.fov,
+        };
+        for (const key in k) if (k[key] > m[key]) { m[key] = k[key]; m.at[key] = i / N; }
+        copyPose(z, a);
+        copyPose(a, b);
+      }
+      log.steps.push(m);
+      const worst = Math.max(m.v, m.a, m.w, m.f);
+      if (worst <= 1.03) break;
+      T = Math.min(T * worst * 1.03, 20);
+    }
+    D.fits.push(log);                                       // последние подборы — для разбора (camtrace.mjs)
+    if (D.fits.length > 24) D.fits.shift();
+    return T;
+  }
   function go(shot, T = "auto") {
     if (!D.shot || T === 0) { D.shot = shot; return 0; }
     const a = D.shot.pose(D.t, pose()), b = shot.pose(D.t, pose());
     const lift = liftFor(a, b);
-    const dur = T === "auto" ? autoT(a, b, lift) : T;
+    // полёт по трубе трогается за 1,6 с до конца перехода: камера сперва долетает до начала пути
+    const prep = shot.kind === "glide" ? d => shot.setDelay(Math.max(0, d - 1.6)) : null;
+    const dur = fitT(D.shot, shot, D.t, T === "auto" ? autoT(a, b, lift) : T, lift, prep);
+    prep?.(dur);
     D.shot = new Blend(D.shot, shot, D.t, dur, lift);
     return dur;
   }
@@ -636,6 +843,7 @@ export function createDirector(api) {
   // вещь выбрана: своё тёплое свечение поверх её цветов (а не сплошная заливка, как в панели)
   function tint(ids) { D.tint.clear(); for (const id of ids) D.tint.set(id, D.t); }
   function focus(ids, color) {
+    D.lit = { ids, color };                                 // после пересборки сцены подсветку надо вернуть
     api.clearHighlight();
     for (const id of ids) { const o = S.obj.get(id); if (o) api.highlight(o, color); }
     api.invalidate();
@@ -781,9 +989,11 @@ export function createDirector(api) {
     const standoff = leg.end ? Math.min(0.9, leg.path.len * 0.3) : 0;
     const s1 = Math.max(0.2, leg.path.len - standoff);
     const slow = leg.pois.filter(p => p !== leg.end && p !== leg.startPoi).map(p => ({ s: p.s, v: 0.45, w: 1.3 }));
-    leg.prof ||= speedProfile(leg.path, { s1, slow });
+    const how = { path: leg.path, z, pois: leg.pois, end: leg.end, start: leg.startPoi, side: null };
     leg.side ||= lateral(leg.path, rooms().map(outlineWorld));
-    return new Glide({ path: leg.path, prof: leg.prof, z, pois: leg.pois, end: leg.end, t0: t, delay, side: leg.side });
+    how.side = leg.side;
+    leg.prof ||= speedProfile(leg.path, { s1, slow, cap: gazeCap(new Glide({ ...how, prof: NO_PROF }), s1) });
+    return new Glide({ ...how, prof: leg.prof, t0: t, delay });
   }
 
   // кадр на источник трассы (узел ввода): вплотную, с той стороны, откуда к нему подходят
@@ -808,6 +1018,8 @@ export function createDirector(api) {
     D.paused = false;
     D.focus = null;
     D.focusBox = null;
+    D.lit = null;
+    D.picked = null;
     if (!D.active) {
       D.active = true;
       controls.enabled = false;
@@ -913,7 +1125,7 @@ export function createDirector(api) {
     // ящик или вещь в шкафу — выбор просмотрщика: он делает шкаф прозрачным, чтобы было видно внутри;
     // остальное — своим свечением поверх настоящих цветов
     const inside = ["storage", "item"].includes(e.kind) || !S.obj.has(e.id);
-    if (inside) api.select(e.id, { fly: false });
+    if (inside) { api.select(e.id, { fly: false }); D.picked = e.id; }
     else { api.select(null); tint([e.id]); }
     D.focus = e;
     D.focusBox = box(e.id);
@@ -1014,7 +1226,8 @@ export function createDirector(api) {
       overlay.caption(sys.name, names.length ? `${names.length} ${names.length === 1 ? "прибор" : names.length < 5 ? "прибора" : "приборов"}: ${[...new Set(names)].join(", ")}` : sub, D.t + T * 0.6, 9);
     } });
     program(beats);
-    const secs = Math.round(plan.legs.reduce((n, l) => n + glideShot(l, 0, 0).dur, 0) + 6 + plan.legs.length * 4);
+    // полёты + общий план и узел ввода в начале (~20 с) + на каждую ногу переход, прибор в конце и перелёт (~14 с)
+    const secs = Math.round(plan.legs.reduce((n, l) => n + glideShot(l, 0, 0).dur, 0) + 20 + plan.legs.length * 14);
     return { ok: true, op: "route", id: sys.id, name: sys.name, title: sys.name, sub, seconds: secs, legs: plan.legs.length };
   }
   // время на профиле, когда камера будет в точке s пути
@@ -1094,6 +1307,7 @@ export function createDirector(api) {
     restoreMep();
     D.beats = []; D.beat = -1; D.beatEnd = Infinity;
     D.active = false;
+    delete camera.userData.nearCap;
     controls.target.copy(cur.q);
     camera.position.copy(cur.p);
     camera.up.copy(UP);
@@ -1140,7 +1354,11 @@ export function createDirector(api) {
       const e = S.by.get(id);
       if (!e || !e._inUnit || !["furniture", "device", "storage"].includes(e.kind)) continue;
       const b = new THREE.Box3().setFromObject(o);
-      if (!b.isEmpty() && b.max.z - floorZ() > 0.5) list.push({ id, o, b });
+      if (b.isEmpty() || b.max.z - floorZ() <= 0.5) continue;
+      // коробки деталей: у углового гарнитура общая коробка — это и воздух над нижними шкафами
+      const parts = [];
+      o.traverse(c => { if (c.isMesh) { const pb = new THREE.Box3().setFromObject(c); if (!pb.isEmpty()) parts.push(pb); } });
+      list.push({ id, o, b, parts });
     }
     fadeBoxes = { list, n: S.obj.size };
     fadeVer = S.ver;
@@ -1152,6 +1370,15 @@ export function createDirector(api) {
   function occlusion() {
     const want = new Map();
     occN++;
+    // ближняя плоскость (app.js отодвигает её издалека ради точности глубины) не должна резать вещь, мимо которой
+    // камера проходит вплотную: не дальше 0,6 расстояния до ближайшей детали мебели. Вещь, сквозь которую камера
+    // летит, уже растворена (ниже) — её срез не виден, и она не в счёт
+    let close = Infinity;
+    for (const x of occluders()) {
+      if ((D.fade.get(x.id) ?? 0) > 0.9 || x.b.distanceToPoint(cur.p) >= close) continue;
+      for (const pb of x.parts) close = Math.min(close, pb.distanceToPoint(cur.p));
+    }
+    camera.userData.nearCap = 0.6 * Math.max(close, 0.03);
     if (D.op === "route" || D.op === "object" || D.op === "inside") {
       const p = cur.p;
       // лучи к цели: в центр кадра, а у выбранной вещи — ещё к её верху и верхним углам (кресло перед конвектором
@@ -1237,13 +1464,18 @@ export function createDirector(api) {
     hidden.length = 0;
   }
 
+  // Данные пересобрали (вещь добавили, пакет обновили): показ идёт дальше с того же места — планы и пути те же,
+  // заново только подсветка и выбор, которые просмотрщик сбросил вместе со сценой. Начинать показ сначала нельзя:
+  // камеру бросало бы к первому плану посреди пролёта.
   function onRebuild() {
     fadeBoxes = null;
-    if (D.active && D.cmd) {
-      const keep = D.shot;
-      play(D.cmd);
-      if (keep && D.shot && !(D.shot instanceof Blend)) D.shot = new Blend(keep, D.shot, D.t, 1.2, { k: 0, el: 0 });
-    }
+    ghostCache.clear();
+    tintCache.clear();
+    blocks.clear();
+    if (!D.active) return;
+    if (D.lit) focus(D.lit.ids, D.lit.color);
+    if (D.picked && S.by.has(D.picked)) api.select(D.picked, { fly: false });
+    api.invalidate();
   }
 
   // чёрный экран до первой сцены: поток уже идёт, телевизор подключается, показ начнётся из темноты

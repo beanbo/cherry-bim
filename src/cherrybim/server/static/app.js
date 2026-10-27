@@ -13,6 +13,7 @@ import { fixture } from "./furnishings.js";
 import { Kit } from "./kit.js";
 import { M, pbr, hex } from "./materials.js";
 import { createDirector } from "./director.js";
+import { settleCoplanar } from "./coplanar.js";
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);                  // как в модели: Z вверх, метры
 
@@ -80,7 +81,9 @@ if (TV) document.body.classList.add("tv");
 const canvas = $("#c");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, powerPreference: "high-performance" });
 renderer.setClearColor(0x000000, 0);                     // фон — цвет темы под холстом (CSS), тонмаппинг его не трогает
-renderer.setPixelRatio(TV ? 1 : Math.min(window.devicePixelRatio || 1, 2));
+// ?tv=1&ss=2 — кадр рисуется вдвое крупнее и ужимается в поток: 16 выборок на точку вместо 4, тонкие кромки и блики
+// издалека не мерцают (RTX 5070: 7–9 мс на кадр 3840×2160)
+renderer.setPixelRatio(TV ? Number(QS.get("ss")) || 1 : Math.min(window.devicePixelRatio || 1, 2));
 renderer.shadowMap.enabled = QS.get("shadows") !== "0";
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.NeutralToneMapping;
@@ -683,6 +686,7 @@ function build() {
   makePuck();
   applyView();
   paintDevices();
+  settleCoplanar(world);                                   // грани в одной плоскости: деталь поверх основы, без мерцания
 }
 
 // потолок комнаты на высоте потолка квартиры: виден только снизу (из комнаты), сверху на квартиру не мешает
@@ -889,6 +893,7 @@ function applyView() {
   // глубина: в виде квартиры ближняя и дальняя плоскости ближе друг к другу — точнее буфер глубины (иначе за тонкой
   // стеной проступает силуэт вещи из соседней комнаты)
   Object.assign(camera, S.view === "unit" ? { near: 0.05, far: 800 } : { near: 0.3, far: 5000 });   // 800 — дома за окнами
+  camera.userData.near0 = camera.near;                     // ближе не бывает; издалека кадр отодвигает её (frame)
   camera.updateProjectionMatrix();
   for (const [id, o] of S.obj) {
     const e = S.by.get(id);
@@ -1047,6 +1052,12 @@ function frame(now, force = false) {
   }
   if (!dirty && !force) return false;
   dirty = false;
+  // ближняя плоскость — на доле расстояния до цели: точность буфера глубины падает как квадрат расстояния, делённый
+  // на ближнюю плоскость, и с 0,05 м на облёте с 25 м шаг был больше миллиметра — грани в миллиметре друг от друга
+  // (фасад и подложка, шкаф в нише стены) мерцали. На 1 м — 0,03 мм. Режиссёр не даёт ей резать вещь рядом (nearCap)
+  const near = Math.min(camera.userData.nearCap ?? Infinity,
+    Math.max(camera.userData.near0 ?? camera.near, 0.04 * camera.position.distanceTo(controls.target)));
+  if (Math.abs(near - camera.near) > 1e-3 * near) { camera.near = near; camera.updateProjectionMatrix(); }
   const t0 = performance.now();
   director.beforeRender();
   composer.render();

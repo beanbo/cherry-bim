@@ -1,15 +1,17 @@
 // Cherry BiM — поток кадров просмотрщика для экрана без браузера (телевизор). Кадр сцены и подписи режиссёра
 // склеиваются в один холст, кодировщик WebCodecs (H.264, видеокарта) сжимает его, куски уходят по WebSocket тому, кто
 // собирает из них видео (на ПК — HLS для телевизора).
-// Часы — номер кадра от старта: кадров ровно fps в секунду реального времени; не успел — номер догоняет время
-// (кадр пропускается, видео не замедляется). Метка кадра в мкс идёт от начала потока.
+// Часы — номер кадра от старта: кадров ровно fps в секунду реального времени, сцена живёт по номеру кадра. Не успел
+// (сцену пересобрали, Chrome задумался) — следующие кадры рисуются без пауз, пока не догонят время: телевизор держит
+// запас 1,6 с (HOLD-BACK), и камера не прыгает. Пропускать кадры (прыжок камеры) — только если отстали больше чем на
+// 1,2 с. Кодировщик занят — ждём его, а не выбрасываем кадр. Метка кадра в мкс идёт от начала потока.
 // Сообщение куска: 16 байт заголовка — тип (1 опорный, 0 обычный), 3 байта нулей, метка f64 (мкс), длительность u32
 // (мкс), — затем байты H.264 Annex B. Первым идёт текст {type: "hello", width, height, fps, codec}.
 const CODEC = "avc1.640028";                              // High 4.0: 1080p60 тянет любой телевизор
 
 export async function startCapture({ url, fps = 60, bitrate = 14e6, gop = 30, canvas, director, frame, onStop = () => {} }) {
   if (typeof VideoEncoder !== "function") throw new Error("нет WebCodecs");
-  const W = canvas.width & ~1, H = canvas.height & ~1;
+  const [W, H] = outSize(canvas);
   const cfg = { codec: CODEC, width: W, height: H, bitrate, bitrateMode: "variable", framerate: fps,
                 hardwareAcceleration: "prefer-hardware", latencyMode: "realtime", avc: { format: "annexb" } };
   if (!(await VideoEncoder.isConfigSupported(cfg)).supported) throw new Error("кодировщик не берёт " + JSON.stringify(cfg));
@@ -22,7 +24,7 @@ export async function startCapture({ url, fps = 60, bitrate = 14e6, gop = 30, ca
   comp.width = W; comp.height = H;
   const g = comp.getContext("2d", { alpha: false });
   const bg = backdrop(W, H);
-  const st = { frames: 0, dropped: 0, keys: 0, bytes: 0, renderMs: 0, started: performance.now(), error: null };
+  const st = { frames: 0, dropped: 0, keys: 0, bytes: 0, renderMs: 0, lagMax: 0, started: performance.now(), error: null };
   let stopped = false, wantKey = true;
 
   const enc = new VideoEncoder({
@@ -50,12 +52,13 @@ export async function startCapture({ url, fps = 60, bitrate = 14e6, gop = 30, ca
     if (stopped) return;
     const now = performance.now(), due = t0 + n * 1000 / fps;
     if (now < due - 0.5) { setTimeout(step, Math.max(0, due - now - 0.5)); return; }
-    if (now - due > 250) {                                  // отстали (Chrome занят) — догнать время, а не замедлиться
+    if (enc.encodeQueueSize > 3 || ws.bufferedAmount > 8e6) { setTimeout(step, 2); return; }   // кодировщик занят — ждём
+    if (now - due > 1200) {                                 // отстали больше запаса телевизора — догнать время
       const k = Math.floor((now - t0) * fps / 1000);
       st.dropped += k - n;
       n = k;
     }
-    if (enc.encodeQueueSize > 3 || ws.bufferedAmount > 8e6) { st.dropped++; n++; setTimeout(step, 1); return; }
+    st.lagMax = Math.max(st.lagMax, now - due);               // насколько кадр опоздал (запас телевизора — 1,6 с)
     const t = t0 + n * 1000 / fps, r0 = performance.now();
     frame(t, true);
     g.drawImage(bg, 0, 0);
@@ -87,13 +90,19 @@ export async function startCapture({ url, fps = 60, bitrate = 14e6, gop = 30, ca
 // один кадр в момент t (мс) — как его увидит телевизор: фон, сцена, подписи. Для проверки и обложки потока
 export function snapshot({ canvas, director, frame, t, type = "image/jpeg", quality = 0.92 }) {
   frame(t, true);
-  const W = canvas.width & ~1, H = canvas.height & ~1, c = document.createElement("canvas");
+  const [W, H] = outSize(canvas), c = document.createElement("canvas");
   c.width = W; c.height = H;
   const g = c.getContext("2d", { alpha: false });
   g.drawImage(backdrop(W, H), 0, 0);
   g.drawImage(canvas, 0, 0, W, H);
   director.overlay.draw(g, W, H);
   return c.toDataURL(type, quality);
+}
+
+// размер кадра потока — экранный размер холста (при ?ss=2 буфер сцены вдвое больше и ужимается при склейке:
+// ровно вдвое — сглаживание по четырём точкам)
+function outSize(canvas) {
+  return [(canvas.clientWidth || canvas.width) & ~1, (canvas.clientHeight || canvas.height) & ~1];
 }
 
 // фон за сценой — как в режиме ТВ на экране (style.css, body.tv #c): холст сцены прозрачен там, где ничего нет
