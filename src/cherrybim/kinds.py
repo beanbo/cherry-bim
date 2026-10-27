@@ -103,6 +103,7 @@ KINDS: dict[tuple[Kind, str | None], tuple[str, str, str | None]] = {
     (Kind.device, "router"): ("роутер", "IfcCommunicationsAppliance", "ROUTER"),
     (Kind.device, "ups"): ("ИБП", "IfcElectricFlowStorageDevice", "UPS"),
     (Kind.device, "printer_3d"): ("3D-принтер", "IfcElectricAppliance", "USERDEFINED"),
+    (Kind.device, "filament_dryer"): ("сушилка филамента", "IfcElectricAppliance", "USERDEFINED"),
     (Kind.device, "sensor"): ("датчик", "IfcSensor", "USERDEFINED"),
     (Kind.device, "vacuum"): ("робот-пылесос", "IfcElectricAppliance", "USERDEFINED"),
     (Kind.device, "fridge"): ("холодильник", "IfcElectricAppliance", "FRIDGE_FREEZER"),

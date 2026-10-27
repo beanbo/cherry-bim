@@ -795,8 +795,20 @@ fam("device.hob", ({ kit, size: [W, D, H] }) => {
   kit.box(pbr(0x6b7078, { rough: 0.3 }), W * 0.3, 0.025, z - 0.0002, W * 0.7, 0.06, z + 0.0002);   // сенсорная полоса
 });
 
-fam("device.range_hood", ({ kit, size: [W, D, H] }) => {
-  // встроенная: снизу видна панель с фильтрами и выдвижной козырёк
+fam("device.range_hood", ({ kit, size: [W, D, H], mat, r }) => {
+  // встроенная: снизу видна панель с фильтрами и выдвижной козырёк.
+  // render.style = "box" — полновстраиваемая: корпус в шкафу, из его дна выступает только нижняя панель (цвет body)
+  // с двумя жировыми фильтрами и лампами; render.buttons — кнопки снизу у передней кромки
+  if (r.style === "box") {
+    const h = Math.max(H, 0.008);
+    kit.box(mat("body", M.black), 0, 0, 0, W, D, h, 0.002);
+    const fw = (W - 0.07) / 2;
+    for (let i = 0; i < 2; i++) kit.box(mat("filter", M.brushed, "metal"), 0.025 + i * (fw + 0.02), 0.055, -0.0008, 0.025 + i * (fw + 0.02) + fw, D - 0.025, 0.0004);
+    for (const x of [0.045, W - 0.045]) kit.cylZ(M.led, x, 0.03, -0.0012, 0.0004, 0.011, 20);
+    const n = r.buttons ?? 0;
+    for (let i = 0; i < n; i++) kit.cylZ(M.graphite, W * 0.5 + (i - (n - 1) / 2) * 0.022, 0.016, -0.004, 0.0004, 0.0055, 16);
+    return;
+  }
   kit.box(M.brushed, 0, 0, 0, W, D, Math.max(H, 0.01));
   for (let i = 0; i < 2; i++) kit.box(M.graphite, 0.02 + i * (W - 0.03) / 2, 0.02, -0.002, (i + 1) * (W - 0.03) / 2, D - 0.02, 0);
   kit.box(M.blackGlass, 0, -0.03, -0.005, W, 0.0, 0.012, 0.003);
@@ -820,9 +832,12 @@ fam("device.vacuum", ({ kit, size, mat, r }) => {
       for (const x of [0.01, W - 0.025]) kit.box(body, x, yb, 0, x + 0.015, D, zo);       // боковины проёма
       kit.box(body, 0.025, D * 0.78, 0, W - 0.025, D, zo);                                 // задняя стенка проёма
       kit.prism(body, [[-0.01, 0], [W - 0.03, 0], [W - 0.03, D * 0.7], [-0.01, D * 0.7]], 0, 0.014);   // рампа
-      kit.cylZ(mat("robot", M.white), W / 2, D * 0.45, 0.014, 0.095, 0.17, 48);
-      kit.cylZ(M.white, W / 2, D * 0.4, 0.095, 0.122, 0.04, 28);                           // башенка лидара
-      kit.box(M.blackGlass, W / 2 - 0.03, D * 0.4 - 0.042, 0.1, W / 2 + 0.03, D * 0.4 - 0.03, 0.118);
+      // робот в доке — свои материалы с меткой dock: просмотрщик прячет его, пока живой робот (поза с карты) не у базы
+      const rob = mat("robot", M.white).clone(), win = M.blackGlass.clone();
+      rob.userData.dock = win.userData.dock = true;
+      kit.cylZ(rob, W / 2, D * 0.45, 0.014, 0.095, 0.17, 48);
+      kit.cylZ(rob, W / 2, D * 0.4, 0.095, 0.122, 0.04, 28);                               // башенка лидара
+      kit.box(win, W / 2 - 0.03, D * 0.4 - 0.042, 0.1, W / 2 + 0.03, D * 0.4 - 0.03, 0.118);
       return;
     }
     kit.box(body, 0.01, D * 0.4, 0, W - 0.01, D, H * 0.42, 0.02);
@@ -832,14 +847,22 @@ fam("device.vacuum", ({ kit, size, mat, r }) => {
   });
 }, FREE);
 
-fam("device.thermostat", ({ kit, e, env }) => {
+fam("device.thermostat", ({ kit, e, env, r }) => {
   // термостатическая головка на клапане прибора: сверху у торца прибора, если он известен; торец — render.valve
-  // прибора ("left" — левый, если смотреть из комнаты), по умолчанию правый
+  // прибора ("left" — левый, если смотреть из комнаты), по умолчанию правый. render.head = "side" — головка лежит
+  // параллельно полу: ось вдоль прибора, наружу от торца, верх вровень с прибором
   const rad = (e.refs || []).map(x => env.by(x.to)).find(x => x?.geom?.type === "box");
   let at = [0, 0, 0];
   if (rad) {
-    const m = env.rel(e, rad), [L, D, H] = rad.geom.size;
-    const x = rad.props?.render?.valve === "left" ? -0.04 : L + 0.04;
+    const m = env.rel(e, rad), [L, D, H] = rad.geom.size, left = rad.props?.render?.valve === "left";
+    if (r.head === "side") {
+      const s = left ? -1 : 1, x0 = left ? 0 : L, z = H - 0.03;
+      const p = dx => new THREE.Vector3(x0 + s * dx, D * 0.5, z).applyMatrix4(m).toArray();
+      kit.rod(M.chrome, p(-0.01), p(0.022), 0.012, 16);                                    // клапан
+      kit.rod(env.own(e), p(0.022), p(0.115), 0.027, 28);                                  // головка ⌀54 × 93
+      return;
+    }
+    const x = left ? -0.04 : L + 0.04;
     at = new THREE.Vector3(x, D * 0.5, H - 0.02).applyMatrix4(m).toArray();
   }
   kit.cylZ(M.chrome, at[0], at[1], at[2] - 0.03, at[2] + 0.02, 0.012, 16);
@@ -1091,23 +1114,25 @@ function opening(e, env) {
 }
 
 // окно ПВХ: стена под подоконником и над проёмом, рама, створки со стеклом и ручками, подоконник, откосы
-// frameTop — высота верхнего бруса рамы (иначе как у остальных), railColor — цвет ограждения
+// frameTop — высота верхнего бруса рамы (иначе как у остальных), railColor — цвет ограждения; lower — остекление до
+// пола: вместо стены под окном глухие стёкла в той же раме, стойки — под импостами окна, на месте низа проёма импост
 function windowAt(kit, { W, T, H, zf, top }, { sashes, frameMat = M.pvc, sillDepth = 0.06, door = null, railing = false,
-  frameTop = null, railColor = null }) {
+  frameTop = null, railColor = null, lower = false }) {
   const fz = T * 0.42, fd = 0.07, pf = 0.06, ft = frameTop ?? pf;   // рама в толще стены ближе к улице
+  const low = lower && zf > 0.01, zb = low ? -zf : 0;      // низ рамы
   // стена под окном и перемычка утоплены на полмиллиметра от плоскостей стены: иначе ребро их торца лежит в плоскости
   // соседней стены, бьётся с ней по глубине и рисует светлый пунктир
   // торцы у откосов (x = 0 и x = W) не строятся: они упираются в откос стены и под острым углом пробивали пунктиром
   // всё, что перед ними (шторы); в щель у откоса видна заглушка внутри стены
-  if (zf > 0.01) kit.slab(M.paint, 0, IN, -zf, W, T - IN, 0, "x-x+");                  // стена под окном
+  if (zf > 0.01 && !low) kit.slab(M.paint, 0, IN, -zf, W, T - IN, 0, "x-x+");          // стена под окном
   if (top - H > 0.01) kit.slab(M.paint, 0, IN, H, W, T - IN, top + 0.02, "x-x+");      // перемычка — до плиты над потолком
   for (const x of [-0.0045, W + 0.0005]) kit.box(M.paint, x, IN, -zf, x + 0.004, T - IN, top + 0.02);
-  kit.slab(frameMat, 0, fz, 0, pf, fz + fd, H, "x-");
-  kit.slab(frameMat, W - pf, fz, 0, W, fz + fd, H, "x+");
+  kit.slab(frameMat, 0, fz, zb, pf, fz + fd, H, "x-");
+  kit.slab(frameMat, W - pf, fz, zb, W, fz + fd, H, "x+");
   kit.box(frameMat, pf, fz, 0, W - pf, fz + fd, pf);
   kit.box(frameMat, pf, fz, H - ft, W - pf, fz + fd, H);
-  if (zf > 0.01) kit.box(frameMat, -0.04, -sillDepth, -0.025, W + 0.04, fz + 0.005, 0.0, 0.003);   // подоконник
-  kit.box(pbr(0xd8dadc, { rough: 0.5, metal: 0.4 }), 0, fz + fd, -0.012, W, T + 0.04, 0.0);        // отлив
+  if (zf > 0.01 && !low) kit.box(frameMat, -0.04, -sillDepth, -0.025, W + 0.04, fz + 0.005, 0.0, 0.003);   // подоконник
+  kit.box(pbr(0xd8dadc, { rough: 0.5, metal: 0.4 }), 0, fz + fd, zb - 0.012, W, T + 0.04, zb);      // отлив
   if (railing) {                                           // ограждение снаружи: поручень и стойки до 1,1 м от пола
     // белое, как на фото; снаружи его освещает небо со всех сторон — чуть светится своим цветом, иначе против света
     // сквозь тюль читается тёмными стойками
@@ -1119,6 +1144,16 @@ function windowAt(kit, { W, T, H, zf, top }, { sashes, frameMat = M.pvc, sillDep
     }
   }
   const parts = sashes(W - 2 * pf);
+  if (low) {                                               // нижний ярус: нижний брус, стойки под импостами, стёкла
+    kit.box(frameMat, pf, fz, zb, W - pf, fz + fd, zb + pf);
+    let xl = pf;
+    for (const p of parts) {
+      const x0 = xl, x1 = xl + p.w;
+      xl = x1;
+      if (p.mullion) kit.box(frameMat, x0, fz, zb + pf, x1, fz + fd, 0);
+      else kit.box(M.glass, x0, fz + 0.02, zb + pf, x1, fz + 0.044, 0);
+    }
+  }
   let x = pf;
   for (const p of parts) {
     const x0 = x, x1 = x + p.w;
@@ -1144,11 +1179,11 @@ function windowAt(kit, { W, T, H, zf, top }, { sashes, frameMat = M.pvc, sillDep
 fam("opening.window", ({ kit, e, env, r }) => {
   // створки: render.sashes или по ширине (две у окна шире 1,1 м), между ними импост; render.fixed — номера глухих
   // полотен (стекло прямо в раме, 0 — у начала проёма), render.frame_top — высота верхнего бруса,
-  // render.railing_color — цвет ограждения
+  // render.railing_color — цвет ограждения, render.lower — остекление до пола (глухие стёкла под окном вместо стены)
   const o = opening(e, env), fixed = r.fixed || [];
   kit.at(o.m, () => windowAt(kit, o, {
     railing: !!r.railing, sillDepth: r.sill_depth ?? 0.06,   // render.sill_depth — вынос подоконника в комнату
-    frameTop: r.frame_top ?? null, railColor: hex(r.railing_color, null),
+    frameTop: r.frame_top ?? null, railColor: hex(r.railing_color, null), lower: !!r.lower,
     sashes: w => {
       const n = Math.max(1, Math.round(r.sashes ?? (w > 1.1 ? 2 : 1))), m = 0.07, sw = (w - (n - 1) * m) / n, out = [];
       for (let i = 0; i < n; i++) {

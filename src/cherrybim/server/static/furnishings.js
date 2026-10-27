@@ -282,6 +282,21 @@ fam("device.printer_3d", ({ kit, size: [W, D, H], mat, r }) => {
   }
 });
 
+// сушилка филамента на одну катушку: короб со скруглёнными рёбрами, крышка сверху, на фасаде сенсорный экранчик,
+// тёмные окна на катушку — на широких сторонах (на фасаде, если он широкий); цвета: body, lid
+fam("device.filament_dryer", ({ kit, size: [W, D, H], mat }) => {
+  const glass = pbr(0x16181b, { rough: 0.1 });
+  kit.box(mat("body", pbr(0x2e3033, { rough: 0.5 })), 0, 0, 0, W, D, H * 0.86, 0.012);
+  kit.box(mat("lid", pbr(0x3a3d41, { rough: 0.45 })), 0.004, 0.004, H * 0.86 + 0.001, W - 0.004, D - 0.004, H, 0.012);
+  if (W >= D) {
+    kit.box(glass, W * 0.08, -0.0015, H * 0.14, W * 0.62, 0.001, H * 0.8, 0.01);
+    kit.box(M.display, W * 0.7, -0.0015, H * 0.5, W * 0.92, 0.001, H * 0.72, 0.004);
+    return;
+  }
+  kit.box(M.display, W * 0.15, -0.0015, H * 0.52, W * 0.85, 0.001, H * 0.74, 0.004);
+  for (const x of [-0.0015, W - 0.001]) kit.box(glass, x, D * 0.12, H * 0.12, x + 0.0025, D * 0.88, H * 0.8, 0.01);
+});
+
 // системный блок: корпус, стеклянная боковина, подсвеченные вентиляторы спереди
 fam("device.pc", ({ kit, size: [W, D, H], mat, r }) => {
   // render.fans = false — спереди глухо, подсветка (colors.fan_light) видна сквозь стеклянную боковину (сторона −X)
@@ -351,11 +366,68 @@ fam("device.lamp", ({ kit, e, env, size, mat, r }) => {
   });
 }, FREE);
 
-// роутер: плоский корпус и антенны
-fam("device.router", ({ kit, size, r }) => {   // render.antennas — число антенн
-  const [W, D, H] = size || [0.28, 0.15, 0.2];
+// усечённый клин: нижний прямоугольник [x0, y0, x1, y1] на высоте z0, верхний — на z1; все грани плоские
+function frustum(kit, m, [a0, f0, a1, k0], z0, [b0, f1, b1, k1], z1) {
+  const B = [[a0, f0, z0], [a1, f0, z0], [a1, k0, z0], [a0, k0, z0]], T = [[b0, f1, z1], [b1, f1, z1], [b1, k1, z1], [b0, k1, z1]];
+  const quad = (p, q, s, t) => [p, q, s, p, s, t];
+  kit.tris(m, [...quad(...B), ...quad(...T), ...[0, 1, 2, 3].flatMap(i => quad(B[i], B[(i + 1) % 4], T[(i + 1) % 4], T[i]))]);
+}
+
+// антенна-лопасть: пятигранное сечение w × t с ребром к фасаду (−Y), сверху остриё высотой tip
+function blade(kit, m, cx, cy, z0, z1, w, t, tip, tipM = m) {
+  const sec = [[0, -t / 2], [w / 2, -t / 8], [w * 0.4, t / 2], [-w * 0.4, t / 2], [-w / 2, -t / 8]].map(([x, y]) => [cx + x, cy + y]);
+  kit.prism(m, sec, z0, z1);
+  const apex = [cx, cy - t / 6, z1 + tip];
+  kit.tris(tipM, sec.flatMap(([x, y], i) => [[x, y, z1], [...sec[(i + 1) % sec.length], z1], apex]));
+}
+
+// роутер-клин (Xiaomi BE7000): длинный корпус трапецией и в сечении, и по длине; внизу юбка из рёбер, сверху узкий
+// гребень с медной полосой; на передней грани индикаторы, надпись и метка NFC; средние антенны-лопасти за гребнем,
+// крайние — по торцам юбки. Доли — по фото изделия 408 × 133 × 177 мм
+function wedgeRouter(kit, W, D, H, r, mat) {
+  const body = mat("body", pbr(0x33363b, { rough: 0.42, metal: 0.25 })), base = mat("base", pbr(0x1b1c1f, { rough: 0.6 }));
+  const accent = mat("accent", M.copper), light = pbr(0xc9cbce, { rough: 0.4 });
+  const zb = H * 0.113, zt = H * 0.42, e = W * 0.033, sk = W * 0.025, ft = D * 0.33, bt = D * 0.66;
+  kit.box(base, sk + 0.004, 0.012, 0, W - sk - 0.004, D - 0.012, 0.004);                        // опорная планка
+  kit.box(base, sk + 0.003, 0.006, 0.004, W - sk - 0.003, D - 0.006, zb - 0.0005);            // сердцевина юбки
+  for (let i = 0; i < 3; i++) {                                                               // рёбра юбки
+    const z = 0.006 + i * (zb - 0.008) / 3;
+    kit.box(body, sk, 0.001, z, W - sk, D - 0.001, z + 0.0025);
+  }
+  frustum(kit, body, [e, 0.004, W - e, D - 0.004], zb, [W * 0.069, ft, W * 0.931, bt], zt);
+  kit.box(accent, W * 0.09, ft + 0.0015, zt - 0.0004, W * 0.91, ft + 0.0045, zt + 0.0006);    // медная полоса гребня
+  // передняя грань: начало координат у её нижнего края по центру, z — вверх вдоль грани, −y — наружу
+  const L = Math.hypot(ft - 0.004, zt - zb);
+  const face = new THREE.Matrix4().makeTranslation(W / 2, 0.004, zb).multiply(new THREE.Matrix4().makeRotationX(-Math.atan2(ft - 0.004, zt - zb)));
+  kit.at(face, () => {
+    kit.box(light, -0.001, -0.0006, 0.42 * L, 0.001, 0.0004, 0.72 * L);                       // вертикальный штрих
+    for (const t of [0.44, 0.72]) kit.box(M.led, -0.0154, -0.0006, t * L - 0.0009, -0.0058, 0.0004, t * L + 0.0009);   // индикаторы
+    kit.box(accent, W * 0.24, -0.0006, 0.09 * L, W * 0.385, 0.0004, 0.12 * L);                // надпись Xiaomi
+    const [n0, n1, m0, m1, b] = [W * 0.3, W * 0.395, 0.62 * L, 0.74 * L, 0.0007];          // метка NFC — рамкой
+    for (const [x0, z0, x1, z1] of [[n0, m0, n1, m0 + b], [n0, m1 - b, n1, m1], [n0, m0, n0 + b, m1], [n1 - b, m0, n1, m1]]) {
+      kit.box(light, x0, -0.0005, z0, x1, 0.0004, z1);
+    }
+  });
+  // антенны: средние за гребнем (по фото ±0,205 и ±0,372 длины от центра), крайние — вертикально у торцов юбки
+  const n = r.antennas ?? 5, w = W * 0.0485, t = D * 0.09, tip = H * 0.045;
+  const xs = n === 5 ? [-0.372, -0.205, 0, 0.205, 0.372] : Array.from({ length: n }, (_, i) => n > 1 ? -0.372 + i * 0.744 / (n - 1) : 0);
+  xs.forEach(f => blade(kit, body, W / 2 + f * W, bt + t / 2, zt - 0.03, H - tip, w, t, tip, f === 0 ? M.led : body));
+  for (const x of [W * 0.0168, W * 0.9832]) blade(kit, body, x, D * 0.55, H * 0.054, H * 0.96 - tip * 0.6, W * 0.0336, t, tip * 0.6);
+}
+
+// роутер: плоский корпус и антенны; render.style "tower" — узел Mesh башенкой без антенн: решётка сверху,
+// индикатор спереди внизу; "wedge" — корпус-клин с антеннами-лопастями (wedgeRouter)
+fam("device.router", ({ kit, size, r, mat }) => {   // render.antennas — число антенн
+  const [W, D, H] = size || (r.style === "wedge" ? [0.408, 0.133, 0.177] : [0.28, 0.15, 0.2]);
   const off = size ? [0, 0] : [-W / 2, -D / 2];
   kit.move(off[0], off[1], 0, () => {
+    if (r.style === "wedge") { wedgeRouter(kit, W, D, H, r, mat); return; }
+    if (r.style === "tower") {
+      kit.box(M.black, 0, 0, 0, W, D, H, Math.min(W, D) * 0.16);
+      kit.box(M.graphite, W * 0.2, D * 0.2, H - 0.001, W * 0.8, D * 0.8, H + 0.0015, 0.004);
+      kit.box(M.led, W / 2 - 0.003, -0.0008, 0.03, W / 2 + 0.003, 0.002, 0.036, 0.001);
+      return;
+    }
     kit.box(M.black, 0, 0.02, 0, W, D, 0.045, 0.01);
     const n = r.antenna_x?.length ?? r.antennas ?? 6;       // render.antenna_x — места антенн вдоль корпуса
     for (let i = 0; i < n; i++) {
@@ -366,11 +438,25 @@ fam("device.router", ({ kit, size, r }) => {   // render.antennas — число
 }, FREE);
 
 // умная колонка: цилиндр в ткани, сверху кольцо подсветки
-// render.shape: "cube" — кубик в ткани с часами спереди, "screen" — станция с наклонным экраном, иначе цилиндр
+// render.shape: "cube" — кубик в ткани с часами спереди, "screen" — станция с наклонным экраном, "duo" — колонка в
+// ткани и над ней на шарнире широкий экран альбомом (Яндекс Станция Дуо Макс; опущенный, он прикрывает верх
+// передней стенки колонки; render.tilt — наклон экрана назад, градусы), иначе цилиндр
 fam("device.speaker", ({ kit, e, env, size, mat, r }) => {
   const [W, D, H] = size || [0.14, 0.14, 0.2];
   const off = size ? [0, 0] : [-W / 2, -D / 2], body = mat("body", matte(0x3b3f45), "fabric");
   kit.move(off[0], off[1], 0, () => {
+    if (r.shape === "duo") {
+      const hb = H * 0.46, sh = Math.min(W * 0.66, H * 0.72), t = 0.011;   // колонка, экран 16:10 с рамкой
+      kit.box(body, 0.004, D * 0.12, 0, W - 0.004, D, hb, 0.025);
+      kit.box(M.graphite, W / 2 - 0.03, D * 0.5, hb - 0.01, W / 2 + 0.03, D * 0.72, hb + 0.03, 0.01);     // шарнир
+      const zb = H - sh * Math.cos(THREE.MathUtils.degToRad(r.tilt ?? 12));
+      const m = new THREE.Matrix4().makeTranslation(0, D * 0.04, zb).multiply(new THREE.Matrix4().makeRotationX(THREE.MathUtils.degToRad(-(r.tilt ?? 12))));
+      kit.at(m, () => {
+        kit.box(M.black, 0, 0, 0, W, t, sh, 0.008);
+        kit.box(env.own(e), 0.012, -0.0008, 0.012, W - 0.012, 0.001, sh - 0.012);
+      });
+      return;
+    }
     if (r.shape === "cube") {
       kit.box(body, 0, 0, 0, W, D, H, 0.02);
       kit.box(mat("top", body), 0.016, 0.016, H - 0.004, W - 0.016, D - 0.016, H + 0.001, 0.006);   // верх вровень, по плоской части

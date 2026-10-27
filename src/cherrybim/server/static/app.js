@@ -71,6 +71,7 @@ const HIDDEN_PROPS = new Set(["render", "ids"]);          // подсказки 
 const DOC_PROPS = new Set(["url", "file", "mime", "size", "sha256", "saved_at", "pages", "copy_of"]);   // у документа — своим блоком
 const FMT = { "application/pdf": "PDF", "text/html": "страница", "image/jpeg": "фото", "image/png": "картинка", "image/webp": "картинка" };
 const HIDDEN_MEP = new Set(["cable", "pipe_pair", "water_riser", "duct"]);   // в стенах и стяжке: видны в режиме «Инженерия»
+const hiddenMep = e => e.kind === "mep" && HIDDEN_MEP.has(e.type) && !e.props?.render?.exposed;   // render.exposed — проложен открыто
 const CUT = 1.15;                                         // срез стен над полом квартиры, м
 const QS = new URLSearchParams(location.search);          // ?ao=0 — без затенения углов, ?shadows=0 — без теней, ?msaa=0
 // ?tv=1 — экран телевизора: без панелей, камеру ведёт режиссёр (director.js), тёмный фон; кадр 1:1 к пикселям
@@ -356,7 +357,7 @@ function lineObject(e) {
       });
       kit.tube(m, off, r, 10);
     }
-  } else kit.tube(pbr(familyColor(e), { rough: 0.5 }), g.points, r, 10);
+  } else kit.tube(pbr(hex(e.props?.render?.color, familyColor(e)), { rough: 0.5 }), g.points, r, 10);   // render.color — цвет оболочки
   return kit.build();
 }
 
@@ -614,10 +615,13 @@ function skirting(space) {
       : v.y > -cw && v.y < sy + cw && v.x > -0.06 && v.x < sx + 0.06;
   });
   const kit = new Kit(), out = space.geom.outline, z0 = space.geom.z0 || 0, H = 0.07, T = 0.014, step = 0.04;
+  // фурнитура пластикового плинтуса: уголки на углах и заглушки на концах — чуть толще и выше профиля
+  const CT = T + 0.004, CH = H + 0.004, CL = 0.022, EL = 0.012, edges = [];
+  const frame = (a, d) => new THREE.Matrix4().makeTranslation(a.x, a.y, z0).multiply(new THREE.Matrix4().makeRotationZ(Math.atan2(d.y, d.x)));
   for (let i = 0; i < out.length; i++) {
     const a = new THREE.Vector2(...out[i]), b = new THREE.Vector2(...out[(i + 1) % out.length]);
     const len = a.distanceTo(b);
-    if (len < 0.1) continue;
+    if (len < 0.1) { edges.push(null); continue; }
     const d = b.clone().sub(a).divideScalar(len), n = new THREE.Vector2(d.y, -d.x);   // наружу из комнаты (контур против часовой)
     const isWall = s => {
       const p = a.clone().addScaledVector(d, s).addScaledVector(n, 0.03);
@@ -628,9 +632,10 @@ function skirting(space) {
       for (let k = 0; k < 10; k++) { const m = (s0 + s1) / 2; if (isWall(m) === v0) s0 = m; else s1 = m; }
       return (s0 + s1) / 2;
     };
+    const runs = [], m = frame(a, d);
     const put = (s0, s1) => {
       if (s1 - s0 <= 0.05) return;
-      const ang = Math.atan2(d.y, d.x), m = new THREE.Matrix4().makeTranslation(a.x, a.y, z0).multiply(new THREE.Matrix4().makeRotationZ(ang));
+      runs.push([s0, s1]);
       kit.at(m, () => kit.box(mat, s0, 0, 0, s1, T, H, 0.002));
     };
     let prev = null, ps = 0, start = null;
@@ -644,7 +649,37 @@ function skirting(space) {
       prev = w; ps = s;
     }
     if (start !== null) put(start, len);
+    edges.push({ a, d, n, len, m, runs });
   }
+  // концы участков: в вершине контура, где плинтус идёт дальше по соседней стене, — уголок (внутренний, если угол
+  // комнаты выпуклый, иначе наружный). У двери и во внутреннем углу без плинтуса дальше — заглушка. Остальные концы —
+  // там, где кончается стена (проход, граница с соседней комнатой): плинтус заворачивает на её торец — наружный уголок
+  // (за углом плинтус кладёт проход или соседняя комната)
+  edges.forEach((ed, i) => {
+    if (!ed) return;
+    const nx = edges[(i + 1) % edges.length], pv = edges[(i - 1 + edges.length) % edges.length];
+    for (const [s0, s1] of ed.runs) {
+      for (const [s, dir] of [[s0, -1], [s1, 1]]) {        // dir: куда от конца уходит стена без плинтуса
+        const atV = dir > 0 ? s > ed.len - 0.001 : s < 0.001, nb = atV ? (dir > 0 ? nx : pv) : null;
+        const turn = nb ? (dir > 0 ? ed.d.cross(nb.d) : pv.d.cross(ed.d)) : 0;   // > 0 — поворот влево: угол комнаты выпуклый
+        if (nb && (dir > 0 ? nb.runs.some(([q]) => q < 0.001) : nb.runs.some(([, q]) => q > nb.len - 0.001))) {
+          if (dir < 0) continue;                           // уголок ставит участок, который кончается в вершине
+          if (turn > 1e-6) kit.at(ed.m, () => kit.box(mat, s - CL, 0, 0, s, CT, CH, 0.002));                           // внутренний: по ребру угла
+          else kit.at(ed.m, () => kit.box(mat, s - CL, 0, 0, s + CT, CT, CH, 0.002));                                 // наружный
+          kit.at(nb.m, () => kit.box(mat, turn > 1e-6 ? 0 : -CT, 0, 0, CL, CT, CH, 0.002));
+          continue;
+        }
+        const past = ed.a.clone().addScaledVector(ed.d, s + dir * 0.02).addScaledVector(ed.n, 0.03);
+        const nbp = nb && nb.a.clone().addScaledVector(nb.d, dir > 0 ? 0.02 : nb.len - 0.02).addScaledVector(nb.n, 0.03);
+        if (turn > 1e-6 || atDoor(past) || (nbp && atDoor(nbp))) {                                                   // заглушка
+          kit.at(ed.m, () => kit.box(mat, dir > 0 ? s - EL : s, 0, 0, dir > 0 ? s : s + EL, CT, CH, 0.002));
+          continue;
+        }
+        kit.at(ed.m, () => kit.box(mat, dir > 0 ? s - CL : s - CT, 0, 0, dir > 0 ? s + CT : s + CL, CT, CH, 0.002));   // наружный уголок
+        kit.at(ed.m, () => kit.box(mat, dir > 0 ? s : s - CT, -CL, 0, dir > 0 ? s + CT : s, 0, CH, 0.002));
+      }
+    }
+  });
   const g = kit.build();
   g.userData.noPick = true;
   return g;
@@ -815,6 +850,8 @@ function makePuck() {
   g.traverse(c => { c.userData.id = vac.id; });
   g.visible = false;
   g.userData.camera = vac.bind["dreame.camera"];
+  g.userData.vac = vac.id;
+  g.userData.entity = (vac.bind["ha.entity"] || [])[0];
   helpers.add(g);
   S.puck = g;
 }
@@ -858,7 +895,7 @@ function hasSectionGeom(e) { return (S.kids.get(e.id) || []).some(c => c.kind ==
 function visibleIn(e) {
   const k = e.kind, v = S.view;
   if (v === "unit") {
-    if (e._inUnit) return S.mep || !(k === "mep" && HIDDEN_MEP.has(e.type));
+    if (e._inUnit) return S.mep || !hiddenMep(e);
     // под потолком из окон видно окружение: соседние дома и двор; своего дома нет — квартира внутри него
     return !S.cut && !e._myBld && (k === "feature" || k === "section" || (k === "building" && !hasSectionGeom(e)));
   }
@@ -1222,7 +1259,7 @@ function select(id, { fly: doFly = true } = {}) {
   const e = S.sel;
   if (e._inUnit && S.view !== "unit") setView("unit", false);
   else if (e._floor && S.view !== "house") setView("house", false);
-  if (e.kind === "mep" && HIDDEN_MEP.has(e.type) && !S.mep) { S.mep = true; applyView(); }
+  if (hiddenMep(e) && !S.mep) { S.mep = true; applyView(); }
   const target = meshFor(e.id);
   for (const rid of related(e)) { const o = S.obj.get(rid); if (o && o !== target) highlight(o, COL.rel); }   // без подъёма к родителю: группа без геометрии не подсвечивает всю квартиру
   const holder = target && seeThrough(S.by.get(target.userData.id) || e);
@@ -1448,7 +1485,7 @@ function renderTree() {
   S.sel = null;
   const skip = new Set(["wall", "opening", "finish", "system"]);
   const node = (e, depth) => {
-    const kids = (S.kids.get(e.id) || []).filter(k => !skip.has(k.kind) && (S.mep || !(k.kind === "mep" && HIDDEN_MEP.has(k.type))));
+    const kids = (S.kids.get(e.id) || []).filter(k => !skip.has(k.kind) && (S.mep || !hiddenMep(k)));
     const label = `${link(e)} <small>${esc(e.ru)}${e.props?.qty ? " ×" + esc(e.props.qty) : ""}</small>`;
     if (!kids.length) return `<div class="leaf">${label}</div>`;
     return `<details><summary>${label}</summary>${kids.map(k => node(k, depth + 1)).join("")}</details>`;
@@ -1705,16 +1742,24 @@ function paintDevices(changed) {
       pool.visible = S.view === "unit" && pool.material.uniforms.k.value > 0;
     }
   }
-  // пылесос
+  // пылесос: живой робот по позе с карты и робот, нарисованный в доке базы, — один и тот же. Пока он в доке
+  // (состояние docked/charging или поза ближе 0,4 м к доку), виден робот базы, иначе — только живой
   if (S.puck) {
     const s = S.states[S.puck.userData.camera];
-    const pose = s?.pose;
-    S.puck.userData.pose = pose || null;
+    const pose = s?.pose, dock = [];
+    S.obj.get(S.puck.userData.vac)?.traverse(m => { if (m.isMesh && m.material?.userData?.dock) dock.push(m); });
+    let docked = !pose || ["docked", "charging"].includes(S.states[S.puck.userData.entity]?.state);
+    if (!docked && dock.length) {
+      const c = new THREE.Box3().setFromObject(dock[0]).getCenter(new THREE.Vector3());
+      docked = Math.hypot(c.x - pose[0], c.y - pose[1]) < 0.4;
+    }
+    dock.forEach(m => { m.visible = docked; });
+    S.puck.userData.pose = pose && !docked ? pose : null;
     if (pose) {
       S.puck.position.set(pose[0], pose[1], pose[2]);
       S.puck.rotation.set(0, 0, THREE.MathUtils.degToRad(pose[3] || 0));
     }
-    S.puck.visible = S.view === "unit" && !!pose;
+    S.puck.visible = S.view === "unit" && !!S.puck.userData.pose;
   }
   invalidate();
 }
