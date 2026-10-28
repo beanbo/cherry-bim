@@ -42,6 +42,17 @@ def test_items_add_move_remove_persist(store, tmp_path):
     assert row["entity"]["name"] == "Отвёртка"
 
 
+def test_moved_item_forgets_old_place(store):
+    from cherrybim import Box, Placement
+    e = store.add_item("Чемодан", "ящик 3")
+    e.type, e.placement, e.geom = "suitcase", Placement(pos=(0.1, 0.1, 0.0)), Box(size=(0.45, 0.29, 0.72))
+    store.move_item("чемодан", "ящик 3")                                   # то же место — габариты и место остаются
+    assert store.resolve("чемодан").placement is not None
+    store.move_item("чемодан", "ящик 1")                                   # координаты прежнего ящика тут ничего не значат
+    moved = Store(store.packages_dir, store.data_dir).resolve("чемодан")
+    assert moved.placement is None and moved.geom is None and moved.props["size_m"] == [0.45, 0.29, 0.72]
+
+
 def test_ambiguous_place_asks_which(store):
     with pytest.raises(StoreError, match="уточни"):
         store.add_item("Скотч", "ящик")

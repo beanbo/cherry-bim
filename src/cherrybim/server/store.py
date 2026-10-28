@@ -361,6 +361,12 @@ class Store:
             parent = self.resolve(place, PLACE_KINDS)
             if parent.id == e.id or e.id in [a.id for a in self.twin.ancestors(parent.id)]:
                 raise StoreError("нельзя положить вещь саму в себя")
+            if parent.id != e.parent and e.placement is not None:
+                # место задано в системе прежнего родителя: в новом оно ничего не значит, а нарисованная там вещь
+                # висела бы в чужой комнате; габариты остаются в свойствах
+                if e.geom is not None and getattr(e.geom, "size", None):
+                    e.props["size_m"] = [round(v, 3) for v in e.geom.size]
+                e.placement, e.geom = None, None
             e.parent = parent.id
             e.props.update({"moved_at": time.strftime("%Y-%m-%d %H:%M"), **({"by": by} if by else {})})
             self._save()

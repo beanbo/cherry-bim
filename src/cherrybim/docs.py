@@ -223,9 +223,14 @@ _CLEAN = """(() => {
 })()"""
 
 
-def snapshot(url: str, out: str | Path, timeout: float = 90.0, chrome: str | None = None, wait: float = 5.0) -> Path:
+def snapshot(url: str, out: str | Path, timeout: float = 90.0, chrome: str | None = None, wait: float = 5.0,
+             profile: str | Path | None = None) -> Path:
     """Страница сайта → PDF с текстом через Chrome без окна (протокол отладки): экранная вёрстка, без всплывающих
-    окон. Копия откроется, когда сайта уже не будет. Нужен пакет websockets (экстра server)."""
+    окон. Копия откроется, когда сайта уже не будет. Нужен пакет websockets (экстра server).
+
+    profile (или CHERRYBIM_CHROME_PROFILE) — постоянная папка профиля Chrome. На Windows свежий профиль при первом
+    запуске проверяет, не пустой ли пароль учётки, — это неудачный вход в журнале безопасности, и пачка копий во
+    временных профилях может заблокировать учётку. Без profile профиль временный (в контейнере аддона так и надо)."""
     import base64
     import json
     from websockets.sync.client import connect
@@ -235,13 +240,18 @@ def snapshot(url: str, out: str | Path, timeout: float = 90.0, chrome: str | Non
         raise DocError("нет Chrome для копии страницы")
     out = Path(out).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
+    profile = profile or os.environ.get("CHERRYBIM_CHROME_PROFILE") or None
     local = urllib.request.build_opener(urllib.request.ProxyHandler({}))   # к самому Chrome — мимо прокси
-    with tempfile.TemporaryDirectory() as prof:
+    with tempfile.TemporaryDirectory() as tmp:
+        prof = Path(profile) if profile else Path(tmp)
+        prof.mkdir(parents=True, exist_ok=True)
+        port_file = prof / "DevToolsActivePort"
+        port_file.unlink(missing_ok=True)                   # от прошлого запуска на том же профиле
         proc = subprocess.Popen([chrome, "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
                                  f"--user-data-dir={prof}", "--remote-debugging-port=0", "--window-size=1280,900",
                                  "--hide-scrollbars", "about:blank"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
-            port_file, t0 = Path(prof) / "DevToolsActivePort", time.time()
+            t0 = time.time()
             while not port_file.exists() and time.time() - t0 < 20:
                 time.sleep(0.2)
             port = port_file.read_text().split()[0]
@@ -277,8 +287,16 @@ def snapshot(url: str, out: str | Path, timeout: float = 90.0, chrome: str | Non
         except (OSError, StopIteration, ValueError, KeyError) as e:
             raise DocError(f"Chrome не сохранил страницу: {e}") from e
         finally:
-            proc.kill()
-            proc.wait(timeout=10)
+            try:                                          # закрыть, а не убить: иначе профиль может не сохраниться
+                browser = json.loads(local.open(f"http://127.0.0.1:{port}/json/version", timeout=5).read())
+                with connect(browser["webSocketDebuggerUrl"], proxy=None, open_timeout=5) as ws:
+                    ws.send(json.dumps({"id": 1, "method": "Browser.close"}))
+                proc.wait(timeout=10)
+            except Exception:                             # noqa: BLE001 — Chrome не ответил: остаётся kill
+                pass
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10)
     if not out.exists() or out.stat().st_size < 5000:
         raise DocError("Chrome сохранил пустую страницу")
     return out

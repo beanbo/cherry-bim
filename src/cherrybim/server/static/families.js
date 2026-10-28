@@ -1033,11 +1033,17 @@ fam("mep.vent_shaft", ({ kit }) => {
 }, FREE);
 
 fam("mep.power_outlet mep.switch", ({ kit, e }) => {
-  // розетки (рамка на N мест) и выключатели; центр группы — в точке, фасад — −Y
+  // розетки (рамка на N мест) и выключатели; центр группы — в точке, фасад — −Y; render.lid — розетки с откидными
+  // крышками (влажные помещения, IP44)
   const n = Math.max(1, Math.min(5, Number(e.props?.places) || 1)), s = 0.086;
   kit.box(M.white, -n * s / 2, -0.012, -s / 2, n * s / 2, 0.01, s / 2, 0.01);
   for (let i = 0; i < n; i++) {
     const x = (i + 0.5 - n / 2) * s;
+    if (e.type === "power_outlet" && e.props?.render?.lid) {
+      kit.box(M.white, x - 0.032, -0.03, -0.034, x + 0.032, -0.012, 0.03, 0.008);   // крышка
+      kit.box(M.white, x - 0.026, -0.022, 0.03, x + 0.026, -0.012, 0.037, 0.003);     // шарнир сверху
+      continue;
+    }
     if (e.type === "switch") {
       kit.box(M.plastic, x - 0.03, -0.017, -0.03, x + 0.03, -0.012, 0.03, 0.006);
       if ((Number(e.props?.keys) || 1) > 1) kit.box(pbr(0xc8c8c4, { rough: 0.6 }), x - 0.0006, -0.0174, -0.03, x + 0.0006, -0.0168, 0.03);   // шов между клавишами
@@ -1220,7 +1226,7 @@ function doorAt(kit, { W, T, H, top }, { hinge = "left", open = 90, leafMat = M.
   handleMat = M.chrome, leafT = 0.04, casing = true, steel = false, sliding = false, lock = null, grille = false, floorMat = null,
   jamb = null, jambTop = null, casingW = 0.07, handleZ = 1.0, escutcheon = null, rosette = null, peephole = 0, leafW = null,
   leafInset = 0, latch = false, latchMat = M.brushed, frameInset = 0, frameH = null, sill = 0, casingOver = false,
-  backset = 0.065, leafOverlap = 0, seam = [0, 0.003] }) {
+  backset = 0.065, leafOverlap = 0, seam = [0, 0.003], lockMats = null }) {
   if (frameInset > 0) {                                    // коробка уже проёма: по бокам полосы стены, коробка внутри
     for (const [x0, x1] of [[0, frameInset], [W - frameInset, W]]) kit.slab(M.paint, x0, IN, 0, x1, T - IN, top, "x-x+");
     for (const x of [-0.004, W]) kit.box(M.paint, x, IN, 0, x + 0.004, T - IN, top);   // заглушки у краёв проёма
@@ -1284,6 +1290,13 @@ function doorAt(kit, { W, T, H, top }, { hinge = "left", open = 90, leafMat = M.
     if (backMat) kit.box(backMat, x0, leafT * 0.5, lz, x1, leafT, lh, 0.003);
     const kx = hinge === "left" ? x1 - backset : x0 + backset, dir = hinge === "left" ? -1 : 1;   // backset — от кромки до оси ручки
     for (const [y, s] of [[0, -1], [leafT, 1]]) {                                         // ручки с обеих сторон
+      if (lock === "push_pull") {                           // умный замок push-pull с панелями по обе стороны полотна
+        pushPullLock(kit, kx, y, s, lockMats);
+        const cx = (x0 + x1) / 2 + peephole;
+        kit.rod(s < 0 ? pbr(0x111111, { rough: 0.3 }) : M.chrome, [cx, y, 1.49], [cx, y + s * 0.004, 1.49], 0.015, 20);   // глазок
+        if (s < 0) for (const z of [0.31, 1.79]) kit.box(pbr(0xe6e6e6, { rough: 0.4 }), hx - 0.002, y - 0.02, z - 0.065, hx + 0.016 * (hinge === "left" ? 1 : -1), y, z + 0.065, 0.004);   // петли
+        continue;
+      }
       if (lock === "smart" && s < 0) {                      // умный замок: чёрная планка, на ней блок-ручка; выше второй замок
         kit.box(pbr(0x141414, { rough: 0.35 }), kx - 0.035, y - 0.03, 0.85, kx + 0.035, y, 1.24, 0.008);
         kit.box(pbr(0x5a3a2e, { rough: 0.45 }), kx - 0.0225, y - 0.065, 0.9, kx + 0.0225, y - 0.03, 1.06, 0.008);
@@ -1304,6 +1317,35 @@ function doorAt(kit, { W, T, H, top }, { hinge = "left", open = 90, leafMat = M.
       else kit.box(handleMat, kx - 0.02, y + s * 0.006 - 0.003, hz - 0.03, kx + 0.02, y + s * 0.006 + 0.003, hz + 0.03, 0.003);
     }
   }));
+}
+// Умный замок push-pull (render.lock: "push_pull", как Aqara D200i): панели 77 × 406 мм по обе стороны полотна, ручки-
+// лопатки на 0,90–1,06. Снаружи — рамка (lockMats.frame), чёрное стекло, вверху окно распознавания лица, ниже точки
+// сенсорной клавиатуры; изнутри — панель (lockMats.body) с лопаткой, барашком и кнопкой. Выше, на 1,37, — второй замок
+// двери: снаружи цилиндр под ключ, изнутри поворотник. y — грань полотна, s — наружу от неё (−1 — в квартиру)
+function pushPullLock(kit, kx, y, s, m) {
+  const frame = m?.frame ?? pbr(0x5e4636, { rough: 0.35, metal: 0.6 }), body = m?.body ?? pbr(0x141414, { rough: 0.35 });
+  const paddle = m?.handle ?? pbr(0x6b4a35, { rough: 0.3, metal: 0.6 }), dark = pbr(0x2a2a2c, { rough: 0.5 });
+  const w = 0.077, z0 = 0.842, z1 = 1.248, d = s > 0 ? 0.02 : 0.026, f = v => y + s * v;
+  const box = (mat, x0, a, za, x1, b, zb, r = 0) => kit.box(mat, x0, Math.min(f(a), f(b)), za, x1, Math.max(f(a), f(b)), zb, r);
+  if (s > 0) {
+    box(frame, kx - w / 2, 0, z0, kx + w / 2, d, z1, 0.008);
+    box(M.blackGlass, kx - w / 2 + 0.005, d - 0.001, z0 + 0.012, kx + w / 2 - 0.005, d + 0.0008, z1 - 0.008, 0.004);
+    box(pbr(0x050506, { rough: 0.1 }), kx - 0.02, d, z1 - 0.06, kx + 0.02, d + 0.0012, z1 - 0.025, 0.006);   // окно лица
+    for (let i = 0; i < 4; i++) for (let j = -1; j <= 1; j++) {                        // клавиатура 3 × 4
+      const cx = kx + j * 0.018, cz = z1 - 0.085 - i * 0.022;
+      box(pbr(0x3a3c40, { rough: 0.4 }), cx - 0.0025, d + 0.0006, cz - 0.0025, cx + 0.0025, d + 0.0012, cz + 0.0025);
+    }
+    box(paddle, kx - 0.0225, d, 0.9, kx + 0.0225, d + 0.032, 1.06, 0.008);
+    kit.rod(M.chrome, [kx, f(0), 1.37], [kx, f(0.006), 1.37], 0.02, 24);
+    box(dark, kx - 0.0015, 0.006, 1.362, kx + 0.0015, 0.0066, 1.378);                // скважина цилиндра
+    return;
+  }
+  box(body, kx - w / 2, 0, z0, kx + w / 2, d, z1, 0.008);
+  box(paddle, kx - 0.0225, d, 0.9, kx + 0.0225, d + 0.035, 1.06, 0.008);
+  kit.rod(paddle, [kx, f(d), 1.16], [kx, f(d + 0.012), 1.16], 0.014, 20);              // барашек
+  box(dark, kx - 0.008, d, 1.2, kx + 0.008, d + 0.003, 1.216, 0.002);                  // кнопка
+  kit.rod(M.white, [kx, y, 1.37], [kx, f(0.006), 1.37], 0.035, 24);                    // поворотник второго замка
+  kit.rod(pbr(0x111111, { rough: 0.4 }), [kx, f(0.006), 1.37], [kx, f(0.024), 1.37], 0.024, 24);
 }
 const SEAM = pbr(0x9a948a, { rough: 0.7 });               // порожек-стык пола в проёме
 
@@ -1327,7 +1369,8 @@ fam("opening.entrance_door", ({ kit, e, env, r, mat }) => {
   kit.at(o.m, () => doorAt(kit, o, { hinge: r.hinge ?? "left", open: r.open ?? 0, steel: true, leafT: 0.07,
     leafMat: mat("inside", M.white), backMat: mat("outside", M.red), frameMat: mat("frame", M.graphite),
     handleMat: mat("handle", M.chrome, "metal"), casing: r.casing ?? true, lock: r.lock ?? null, floorMat: env.floor?.(e) ?? null,
-    peephole: r.peephole ?? 0, ...doorOpts(r) }));
+    peephole: r.peephole ?? 0, lockMats: { frame: mat("lock_frame", null, "metal"), body: mat("lock_body", null),
+      handle: mat("lock_handle", null, "metal") }, ...doorOpts(r) }));
 }, VARIANTS);
 
 fam("opening.*", ({ kit, e, env }) => {

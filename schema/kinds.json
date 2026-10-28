@@ -298,6 +298,41 @@
    "ru": "вещь",
    "ifc": "IfcBuildingElementProxy",
    "ifc_type": "USERDEFINED"
+  },
+  "kettle": {
+   "ru": "чайник",
+   "ifc": "IfcElectricAppliance",
+   "ifc_type": "USERDEFINED"
+  },
+  "frying_pan": {
+   "ru": "сковорода",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "suitcase": {
+   "ru": "чемодан",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "humidifier": {
+   "ru": "увлажнитель воздуха",
+   "ifc": "IfcHumidifier",
+   "ifc_type": "USERDEFINED"
+  },
+  "stepladder": {
+   "ru": "стремянка",
+   "ifc": "IfcBuildingElementProxy",
+   "ifc_type": "USERDEFINED"
+  },
+  "sewing_machine": {
+   "ru": "швейная машина",
+   "ifc": "IfcElectricAppliance",
+   "ifc_type": "USERDEFINED"
+  },
+  "hammer_drill": {
+   "ru": "перфоратор",
+   "ifc": "IfcElectricAppliance",
+   "ifc_type": "USERDEFINED"
   }
  },
  "mep": {
@@ -411,6 +446,21 @@
    "ifc": "IfcFilter",
    "ifc_type": "WATERFILTER"
   },
+  "water_outlet": {
+   "ru": "вывод воды",
+   "ifc": "IfcPipeFitting",
+   "ifc_type": "EXIT"
+  },
+  "drain_outlet": {
+   "ru": "вывод канализации",
+   "ifc": "IfcPipeFitting",
+   "ifc_type": "EXIT"
+  },
+  "pipe_box": {
+   "ru": "короб для труб",
+   "ifc": "IfcBuildingElementProxy",
+   "ifc_type": "USERDEFINED"
+  },
   "duct": {
    "ru": "воздуховод",
    "ifc": "IfcDuctSegment",
@@ -488,6 +538,11 @@
    "ifc": "IfcElectricAppliance",
    "ifc_type": "USERDEFINED"
   },
+  "filament_dryer": {
+   "ru": "сушилка филамента",
+   "ifc": "IfcElectricAppliance",
+   "ifc_type": "USERDEFINED"
+  },
   "sensor": {
    "ru": "датчик",
    "ifc": "IfcSensor",
@@ -537,6 +592,11 @@
    "ru": "вытяжка",
    "ifc": "IfcElectricAppliance",
    "ifc_type": "USERDEFINED"
+  },
+  "smart_lock": {
+   "ru": "умный замок",
+   "ifc": "IfcActuator",
+   "ifc_type": "ELECTRICACTUATOR"
   },
   "*": {
    "ru": "устройство",

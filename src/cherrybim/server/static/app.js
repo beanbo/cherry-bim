@@ -10,6 +10,7 @@ import { OutputPass } from "./vendor/jsm/postprocessing/OutputPass.js";
 import { RoomEnvironment } from "./vendor/jsm/environments/RoomEnvironment.js";
 import { buildFamily } from "./families.js";
 import { fixture } from "./furnishings.js";
+import "./things.js";
 import { Kit } from "./kit.js";
 import { M, pbr, hex } from "./materials.js";
 import { createDirector } from "./director.js";
