@@ -39,6 +39,7 @@ from ..docs import DOC_TYPES, INHERITED, DocError, fetch, html_copy, sniff, titl
 from ..kinds import lookup
 from ..model import Kind, Privacy
 from ..plan import render_plan
+from ..twin import _norm, _stem
 from .ha import HA, HAError
 from .store import PLACE_KINDS, Store, StoreError
 
@@ -445,7 +446,7 @@ class Server:
             hits = st.search(query, limit=6)
             if not hits:
                 return f"Ничего не нашёл по «{query}». Можно записать вещь через add_item."
-            return "\n".join(_describe(st, h) for h in hits)
+            return "\n".join(_describe(st, h, query) for h in hits)
 
         @mcp.tool()
         def contents(place: str) -> str:
@@ -613,11 +614,15 @@ def _name_from(url: str) -> str:
     return path.rstrip("/").rsplit("/", 1)[-1] or "stranitsa"
 
 
-def _describe(st: Store, h: dict) -> str:
+def _describe(st: Store, h: dict, query: str = "") -> str:
     e = st.twin.by_id[h["id"]]
     ru = lookup(e.kind, e.type)[0]
-    props = [f"{k}: {v}" for k, v in e.props.items() if isinstance(v, (str, int, float)) and not isinstance(v, bool)
-             and len(str(v)) < 160 and k not in ("file", "sha256", "mime", "size")][:8]
+    props = [(k, v) for k, v in e.props.items() if isinstance(v, (str, int, float)) and not isinstance(v, bool)
+             and len(str(v)) < 300 and k not in ("file", "sha256", "mime", "size")]
+    # у ПК полтора десятка свойств: про что спросили («водянка», «блок питания»), то и попадает в первые 8
+    toks = [_stem(t) for t in _norm(query).split() if len(t) > 2]
+    hit = lambda k, v: any(w.startswith(t) for w in _norm(f"{k} {v}").split() for t in toks)
+    props = [f"{k}: {v}" for k, v in sorted(props, key=lambda kv: not hit(*kv))][:8]
     line = f"{e.name} ({ru}) — {h['short']}"
     rel = {}
     for r in e.refs:                                     # «обои — где: Офис, Спальня», «Гр.3 — обслуживает: Кухня»

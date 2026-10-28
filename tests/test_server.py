@@ -123,6 +123,16 @@ def test_mcp_tools_voice_flow(store):
     assert call("find", query="зонтик").startswith("Ничего не нашёл")
 
 
+def test_find_puts_asked_props_first(store):
+    srv = Server(store, HA(url="", token=""))
+    pc = store.add_item("Компьютер", "ящик 1")
+    pc.props.update({f"p{i}": f"деталь {i}" for i in range(10)})
+    pc.props["cooling"] = "водянка Zalman Reserator5 Z36, " + "подробно " * 20   # длиннее 160 символов
+    res = asyncio.run(srv.mcp.call_tool("find", {"query": "какая у компьютера водянка"}))
+    text = (res[0] if isinstance(res, tuple) else res)[0].text
+    assert "Zalman" in text and "p9:" not in text                  # спросили про водянку — она в первых 8
+
+
 def test_vacuum_robot_and_site_roundtrip(store, demo):
     unit = store.twin.by_key["kv12"]
     vac = Entity(id=make_id("test", "vac"), key="kv12.vac", kind=Kind.device, type="vacuum", name="Пылесос",
