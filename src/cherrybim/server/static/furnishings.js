@@ -302,11 +302,14 @@ fam("device.pc", ({ kit, size: [W, D, H], mat, r }) => {
   // render.fans = false — спереди глухо, подсветка (colors.fan_light) видна сквозь стеклянную боковину (сторона −X)
   if (r.fans === false) {
     const body = mat("body", M.black), c = hex(r.colors?.fan_light, 0xe07a2a);
-    kit.box(body, 0.012, 0, 0, W, D, H, 0.006);
     kit.box(mat("mesh", pbr(0x2a2b2e, { rough: 0.85 })), 0.035, -0.002, 0.035, W - 0.025, 0.0005, H - 0.035, 0.003);   // сетка фасада
     for (const [y0, y1, z0, z1] of [[0, 0.03, 0, H], [D - 0.03, D, 0, H], [0.03, D - 0.03, 0, 0.03], [0.03, D - 0.03, H - 0.03, H]]) kit.box(body, 0, y0, z0, 0.012, y1, z1);
-    kit.box(pbr(c, { emissive: c, emissiveIntensity: 0.8 }), 0.005, D * 0.35, H * 0.55, 0.0115, D * 0.6, H * 0.78, 0.003);   // водоблок СВО
-    kit.box(pbr(0x3a6df0, { emissive: 0x3a6df0, emissiveIntensity: 0.6 }), 0.007, D * 0.15, H * 0.35, 0.0115, D * 0.85, H * 0.4);   // видеокарта
+    if (r.inside) pcInside(kit, W, D, H, r, mat, body, c);
+    else {
+      kit.box(body, 0.012, 0, 0, W, D, H, 0.006);
+      kit.box(pbr(c, { emissive: c, emissiveIntensity: 0.8 }), 0.005, D * 0.35, H * 0.55, 0.0115, D * 0.6, H * 0.78, 0.003);   // водоблок СВО
+      kit.box(pbr(0x3a6df0, { emissive: 0x3a6df0, emissiveIntensity: 0.6 }), 0.007, D * 0.15, H * 0.35, 0.0115, D * 0.85, H * 0.4);   // видеокарта
+    }
     kit.box(pbr(0x15171a, { rough: 0.05, metal: 0.3, transparent: true, opacity: 0.45, depthWrite: false }), -0.002, 0.03, 0.03, 0.003, D - 0.03, H - 0.03);
     return;
   }
@@ -314,6 +317,80 @@ fam("device.pc", ({ kit, size: [W, D, H], mat, r }) => {
   kit.box(pbr(0x15171a, { rough: 0.05, metal: 0.3 }), -0.002, 0.03, 0.04, 0.003, D - 0.03, H - 0.04);
   for (let i = 0; i < 3; i++) kit.rod(pbr(0x9fb6ff, { emissive: 0x6f8cff, emissiveIntensity: 0.6 }), [W / 2, 0.0, 0.12 + i * (H - 0.2) / 2.2], [W / 2, -0.003, 0.12 + i * (H - 0.2) / 2.2], Math.min(W, 0.12) * 0.42, 24);
 });
+
+// нутро ПК за стеклом (render.inside): сборка на СВО — кожух БП, плата в глубине, видеокарта на заглушке тыла
+// (render.gpu_len, м), помпа на процессоре со шлангами к радиатору на фасаде, память с подсветкой, вентиляторы
+// (render.fan_slots {front, top, rear}, colors.fans), render.gpu_support — подпорка карты, render.lcd — экран-полоска
+// на своей подставке на кожухе БП под картой. Подсветка помпы и памяти — colors.fan_light
+function pcInside(kit, W, D, H, r, mat, body, c) {
+  const t = 0.008, sh = 0.17 * H, xb = W - 0.045;                       // xb — плоскость платы
+  const fanM = mat("fans", pbr(0xe9e9e9, { rough: 0.5 })), lit = pbr(c, { emissive: c, emissiveIntensity: 1.4 });
+  const slots = { front: 3, top: 2, rear: 1, ...(r.fan_slots || {}) };
+  kit.box(body, W - t, 0, 0, W, D, H);                                  // глухая правая боковина
+  kit.box(body, 0.012, 0, H - t, W - t, D, H);                          // крыша, дно, фасад за сеткой, тыл
+  kit.box(body, 0.012, 0, 0, W - t, D, t);
+  kit.box(body, 0.012, 0, t, W - t, 0.03, H - t);
+  kit.box(body, 0.012, D - t, t, W - t, D, H - t);
+  kit.box(pbr(0x111214, { rough: 0.9 }), xb, 0.03, sh, W - t, D - t, H - t);   // плата и лоток
+  kit.box(body, 0.012, 0.03, t, W - t, D - t, sh);                      // кожух БП
+  // вентилятор: рамка, кольцо лопастей и ступица; ось "y" — на фасаде или тыле, "z" — под крышей
+  const fan = (axis, cx, cy, cz, s = 0.12, th = 0.026) => {
+    const b = 0.008, h = s / 2;
+    if (axis === "y") {
+      for (const [x0, z0, x1, z1] of [[-h, -h, h, -h + b], [-h, h - b, h, h], [-h, -h, -h + b, h], [h - b, -h, h, h]])
+        kit.box(fanM, cx + x0, cy - th / 2, cz + z0, cx + x1, cy + th / 2, cz + z1);
+      kit.torus(fanM, cx, cy, cz, s * 0.44, 0.003, 32, 90);
+      kit.rod(fanM, [cx, cy - th / 2, cz], [cx, cy + th / 2, cz], 0.021, 16);
+    } else {
+      for (const [x0, y0, x1, y1] of [[-h, -h, h, -h + b], [-h, h - b, h, h], [-h, -h, -h + b, h], [h - b, -h, h, h]])
+        kit.box(fanM, cx + x0, cy + y0, cz - th / 2, cx + x1, cy + y1, cz + th / 2);
+      kit.torus(fanM, cx, cy, cz, s * 0.44, 0.003, 32);
+      kit.cylZ(fanM, cx, cy, cz - th / 2, cz + th / 2, 0.021, 16);
+    }
+  };
+  const fx = (0.012 + xb) / 2;
+  if (slots.front) {                                                    // радиатор СВО и вентиляторы на фасаде
+    const z0 = H - t - 0.012 - 0.12 * slots.front;
+    kit.box(pbr(0x26282b, { rough: 0.6 }), fx - 0.062, 0.03, z0, fx + 0.062, 0.057, H - t - 0.012);
+    for (let i = 0; i < slots.front; i++) fan("y", fx, 0.07, z0 + 0.06 + 0.12 * i);
+  }
+  for (let i = 0; i < slots.top; i++) fan("z", fx, D * (0.3 + 0.32 * i), H - t - 0.014);
+  if (slots.rear) fan("y", fx, D - t - 0.014, Math.min(0.76 * H, H - t - 0.032 - 0.06));
+  // видеокарта: от заглушки на тыле вперёд, боком к стеклу — светлая кромка с надписью
+  const gl = Math.min(r.gpu_len ?? 0.29, D - 0.06), gz = 0.42 * H;
+  kit.box(pbr(0x2b2d31, { rough: 0.5, metal: 0.4 }), xb - 0.117, D - t - gl, gz, xb, D - t, gz + 0.045, 0.004);
+  kit.box(pbr(0x9a9da3, { rough: 0.4, metal: 0.6 }), xb - 0.118, D - t - gl * 0.75, gz + 0.012, xb - 0.116, D - t - gl * 0.2, gz + 0.03);
+  if (r.gpu_support) {                                                  // подпорка у переднего конца карты
+    const sil = pbr(0xc9cacd, { rough: 0.3, metal: 0.8 }), y = D - t - gl + 0.03;
+    kit.disc(sil, xb - 0.06, y, sh, 0.022, 0.004);
+    kit.cylZ(sil, xb - 0.06, y, sh, gz, 0.005, 12);
+  }
+  // процессор: помпа с подсвеченной крышкой, шланги к фасаду; память правее, ближе к фасаду
+  const py = D * 0.5, pz = 0.67 * H;
+  kit.rod(fanM, [xb - 0.035, py, pz], [xb, py, pz], 0.04, 32);
+  kit.rod(lit, [xb - 0.037, py, pz], [xb - 0.035, py, pz], 0.03, 32);
+  for (const dz of [0.018, -0.018])
+    kit.tube(fanM, [[xb - 0.03, py - 0.035, pz + dz], [0.06, py - 0.08, pz - 0.05 + dz], [0.06, D * 0.22, pz - 0.07 + dz],
+                    [fx, 0.075, pz + 0.04 + 2 * dz]], 0.007, 12);
+  for (const dy of [0, 0.012]) {
+    const y = D * 0.36 - dy;
+    kit.box(pbr(0x1b1c1f, { rough: 0.6 }), xb - 0.035, y - 0.007, pz - 0.066, xb, y, pz + 0.066);
+    kit.box(lit, xb - 0.038, y - 0.007, pz - 0.066, xb - 0.035, y, pz + 0.066);
+  }
+  if (r.lcd) {                                                          // экран-полоска 8,8": модуль 0,23 × 0,068
+    const L = Math.min(0.23, D - 0.08), y1 = D - t - 0.012, y0 = y1 - L, x = 0.04, z0 = sh + 0.018;
+    const blk = pbr(0x0a0a0b, { rough: 0.7 });
+    kit.box(blk, x, y0, z0, x + 0.012, y1, z0 + 0.068, 0.003);
+    kit.disc(blk, x + 0.03, (y0 + y1) / 2, sh, 0.035, 0.006);           // подставка
+    kit.box(blk, x + 0.01, (y0 + y1) / 2 - 0.01, sh, x + 0.03, (y0 + y1) / 2 + 0.01, z0 + 0.02);
+    const glow = (col, k = 0.9) => pbr(col, { emissive: col, emissiveIntensity: k, rough: 0.4 });
+    kit.box(glow(0x0d1a2b, 0.7), x - 0.001, y0 + 0.004, z0 + 0.004, x, y1 - 0.004, z0 + 0.064);   // фон дашборда
+    const tiles = [[0.02, 0.4, 0x1d3f66], [0.42, 0.62, 0x163352], [0.64, 0.98, 0x163352]];       // плитки, акценты
+    for (const [a, b, col] of tiles) kit.box(glow(col), x - 0.0015, y0 + L * a, z0 + 0.01, x - 0.001, y0 + L * b, z0 + 0.058);
+    kit.box(glow(0xf2c14e, 1.1), x - 0.002, y0 + L * 0.05, z0 + 0.03, x - 0.0015, y0 + L * 0.12, z0 + 0.045);
+    kit.box(glow(0x3fd0e0, 1.1), x - 0.002, y0 + L * 0.7, z0 + 0.03, x - 0.0015, y0 + L * 0.85, z0 + 0.045);
+  }
+}
 
 // монитор на подставке; render.curved — изогнутый экран
 fam("device.monitor", ({ kit, size: [W, D, H], mat, r }) => {
