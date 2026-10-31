@@ -22,7 +22,7 @@ classifiers = [
 ifc = ["ifcopenshell>=0.8", "numpy"]
 # сервер: просмотрщик, API вещей, MCP. mcp 2.x переименовал FastMCP, поэтому <2
 server = ["mcp>=1.26,<2", "uvicorn>=0.30", "httpx>=0.27", "websockets>=13", "pillow>=10.1"]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
 cherrybim-server = "cherrybim.server.app:main"
@@ -39,3 +39,10 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+extend-exclude = ["src/cherrybim/server/static"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
