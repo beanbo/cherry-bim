@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from .model import Box, Entity, Kind, Placement, Source, make_id

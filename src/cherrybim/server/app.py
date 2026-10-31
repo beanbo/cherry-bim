@@ -16,7 +16,6 @@ import argparse
 import asyncio
 import contextlib
 import ipaddress
-import json
 import logging
 import math
 import os
@@ -143,6 +142,8 @@ class Server:
         e, _, frame, aff = self.vacuum
         (a0, a1, a2), (b0, b1, b2) = aff["X"], aff["Y"]
         det = a0 * b1 - a1 * b0
+        if not det:
+            raise ValueError("вырожденная привязка карты робота (dreame.affine)")
         fx = (b1 * (x - a2) - a1 * (y - b2)) / det       # обратная к X = a0·x + a1·y + a2, Y = b0·x + b1·y + b2
         fy = (a0 * (y - b2) - b0 * (x - a2)) / det
         sx, sy, sz = self.store.twin.to_site(frame, [(fx, fy, 0.0)])[0]
@@ -166,7 +167,10 @@ class Server:
         if state and self.vacuum and eid == self.vacuum[1]:
             pos = state.get("attributes", {}).get("vacuum_position")
             if pos:
-                state = dict(state, pose=self._robot_to_site(pos["x"], pos["y"], pos.get("a")))
+                try:
+                    state = dict(state, pose=self._robot_to_site(pos["x"], pos["y"], pos.get("a")))
+                except (KeyError, TypeError, ValueError) as e:      # кривая привязка не должна ронять /api/twin
+                    log.debug("пылесос: %s", e)
         return state
 
     # ── HTTP ─────────────────────────────────────────────────────────────────
@@ -187,13 +191,19 @@ class Server:
     async def api_search(self, request: Request):
         q = request.query_params.get("q", "")
         kinds = {Kind(k) for k in request.query_params.get("kinds", "").split(",") if k in Kind.__members__}
-        return JSONResponse(self.store.search(q, kinds or None, limit=int(request.query_params.get("limit", 12))))
+        try:
+            limit = max(1, min(int(request.query_params.get("limit", 12)), 200))
+        except ValueError:
+            return JSONResponse({"error": "limit — целое число"}, status_code=400)
+        return JSONResponse(self.store.search(q, kinds or None, limit=limit))
 
     async def api_place(self, request: Request):
         return self._guard(lambda: self.store.contents(request.path_params["ref"]))
 
     async def api_items(self, request: Request):
-        body = await request.json()
+        body = await _json_body(request)
+        if body is None:
+            return _bad_json()
         by = _user(request)
         if request.method == "POST":
             return self._guard(lambda: _item(self.store.add_item(body.get("name", ""), body.get("place", ""),
@@ -217,9 +227,11 @@ class Server:
         return JSONResponse({"ha": self.ha_status(), "states": self.states()})
 
     async def api_call(self, request: Request):
-        body = await request.json()
+        body = await _json_body(request)
+        if body is None:
+            return _bad_json()
         eid, service = body.get("entity_id", ""), body.get("service", "toggle")
-        if eid.split(".")[0] not in TOGGLE_DOMAINS or eid not in self.store.bound_entities() \
+        if not isinstance(eid, str) or eid.split(".")[0] not in TOGGLE_DOMAINS or eid not in self.store.bound_entities() \
                 or service not in ("toggle", "turn_on", "turn_off"):
             return JSONResponse({"error": "эту сущность отсюда переключать нельзя"}, status_code=403)
         try:
@@ -231,7 +243,9 @@ class Server:
     async def api_vacuum(self, request: Request):
         if not self.vacuum:
             return JSONResponse({"error": "пылесос не привязан"}, status_code=404)
-        body = await request.json()
+        body = await _json_body(request)
+        if body is None:
+            return _bad_json()
         vac = self.vacuum[0].bind["ha.entity"]
         vac = vac[0] if isinstance(vac, list) else vac
         do = body.get("do")
@@ -243,7 +257,13 @@ class Server:
                     return JSONResponse({"error": f"у «{space.name}» нет комнаты на карте робота"}, status_code=400)
                 await self.ha.call("dreame_vacuum", "vacuum_clean_segment", {"entity_id": vac, "segments": seg})
             elif do in ("goto", "spot"):
-                x, y = self._site_to_robot(*map(float, body["at"][:2]))
+                try:
+                    at = [float(v) for v in body["at"][:2]]
+                    if len(at) != 2 or not all(math.isfinite(v) for v in at):
+                        raise ValueError
+                except (KeyError, TypeError, ValueError):
+                    return JSONResponse({"error": "at: [x, y] в метрах участка"}, status_code=400)
+                x, y = self._site_to_robot(*at)
                 if do == "goto":
                     await self.ha.call("dreame_vacuum", "vacuum_goto", {"entity_id": vac, "x": x, "y": y})
                 else:
@@ -291,8 +311,8 @@ class Server:
                 return JSONResponse({"error": "нужен JSON-объект {to, title, type, url, copy}"}, status_code=400)
             data, filename, mime = None, None, None
         else:
-            data = await request.body()
-            if len(data) > MAX_DOC:
+            data = await _read_body(request, MAX_DOC)
+            if data is None:
                 return JSONResponse({"error": f"файл больше {MAX_DOC // 2 ** 20} МБ"}, status_code=400)
             body, filename, mime = dict(q), q.get("filename") or None, ctype or None
             if filename and not data:
@@ -326,8 +346,8 @@ class Server:
             place = self.store.resolve(request.query_params.get("place", ""), PLACE_KINDS)
         except StoreError as e:
             return JSONResponse({"error": str(e)}, status_code=400)
-        data = await request.body()
-        if not data or len(data) > MAX_PHOTO:
+        data = await _read_body(request, MAX_PHOTO)
+        if not data:
             return JSONResponse({"error": "нужна картинка до 12 МБ"}, status_code=400)
         ext = {"image/png": "png", "image/webp": "webp"}.get(request.headers.get("content-type", ""), "jpg")
         name = f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}.{ext}"
@@ -396,7 +416,9 @@ class Server:
         return {**res, "ok": bool(res.get("ok")), "what": self.store.short_path(e.id)}
 
     async def api_show(self, request: Request):
-        body = await request.json()
+        body = await _json_body(request)
+        if body is None:
+            return _bad_json()
         try:
             return JSONResponse(await self.show(body.get("ref", "")))
         except (StoreError, ValueError) as e:
@@ -592,6 +614,32 @@ class Server:
         return guard
 
 
+def _bad_json() -> JSONResponse:
+    return JSONResponse({"error": "нужен JSON-объект"}, status_code=400)
+
+
+async def _json_body(request: Request) -> dict | None:
+    """Тело запроса как JSON-объект; кривой JSON или не объект — None (ответ 400, а не 500)."""
+    try:
+        body = await request.json()
+    except ValueError:
+        return None
+    return body if isinstance(body, dict) else None
+
+
+async def _read_body(request: Request, limit: int) -> bytes | None:
+    """Тело запроса не больше limit байт; больше — None, не дочитывая всё в память."""
+    size = request.headers.get("content-length", "")
+    if size.isdigit() and int(size) > limit:
+        return None
+    buf = bytearray()
+    async for chunk in request.stream():
+        buf += chunk
+        if len(buf) > limit:
+            return None
+    return bytes(buf)
+
+
 def _user(request: Request) -> str | None:
     """Кто правит: под ingress HA передаёт имя пользователя в заголовке."""
     name = request.headers.get("x-remote-user-display-name") or request.headers.get("x-remote-user-name")
@@ -621,7 +669,7 @@ def _describe(st: Store, h: dict, query: str = "") -> str:
              and len(str(v)) < 300 and k not in ("file", "sha256", "mime", "size")]
     # у ПК полтора десятка свойств: про что спросили («водянка», «блок питания»), то и попадает в первые 8
     toks = [_stem(t) for t in _norm(query).split() if len(t) > 2]
-    hit = lambda k, v: any(w.startswith(t) for w in _norm(f"{k} {v}").split() for t in toks)
+    hit = lambda k, v: any(w.startswith(t) for w in _norm(f"{k} {v}").split() for t in toks)  # noqa: E731
     props = [f"{k}: {v}" for k, v in sorted(props, key=lambda kv: not hit(*kv))][:8]
     line = f"{e.name} ({ru}) — {h['short']}"
     rel = {}

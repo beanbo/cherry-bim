@@ -341,9 +341,20 @@ class Store:
     def add_item(self, name: str, place: str, qty: float | None = None, note: str | None = None,
                  tags: list[str] | None = None, aliases: list[str] | None = None, by: str | None = None,
                  origin: str = "manual") -> Entity:
-        name = (name or "").strip()
+        name = name.strip() if isinstance(name, str) else ""
         if not name:
             raise StoreError("пустое название")
+        for k, v in (("tags", tags), ("aliases", aliases)):
+            if v is not None and (not isinstance(v, list) or not all(isinstance(x, str) for x in v)):
+                raise StoreError(f"{k} — список строк")
+        if qty is not None and (isinstance(qty, bool) or not isinstance(qty, (int, float))):
+            raise StoreError("qty — число")
+        if note is not None and not isinstance(note, str):
+            raise StoreError("note — строка")
+        if not isinstance(place, str):
+            raise StoreError("place — строка: id или слова")
+        if not isinstance(origin, str) or not origin:
+            origin = "manual"
         with self.lock:
             parent = self.resolve(place, PLACE_KINDS)
             props = {k: v for k, v in (("qty", qty), ("note", note), ("by", by),
@@ -401,6 +412,11 @@ class Store:
                     ids[k] = v
             for k, v in new.items():
                 setattr(e, k, v)
+            if fields.get("qty") not in (None, "") and (isinstance(fields["qty"], bool)
+                                                         or not isinstance(fields["qty"], (int, float))):
+                raise StoreError("qty — число")
+            if fields.get("note") is not None and not isinstance(fields["note"], str):
+                raise StoreError("note — строка")
             for k in ("qty", "note"):
                 if k in fields:
                     if fields[k] in (None, ""):

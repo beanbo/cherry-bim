@@ -166,8 +166,9 @@ def html_utf8(data: bytes, charset: str | None = None) -> bytes:
 def html_copy(data: bytes, url: str) -> bytes:
     """Страница как есть + <base href>: относительные ссылки и картинки ведут на сайт, текст — в копии.
     Ищется без регулярных выражений: на странице из одних «<head» поиск с откатом занял бы минуты."""
+    import html
     text = data.decode("utf-8", errors="replace")
-    base = f'<meta charset="utf-8"><base href="{url}">'
+    base = f'<meta charset="utf-8"><base href="{html.escape(url, quote=True)}">'
     m = re.search(r"<head", text, re.I)
     end = text.find(">", m.end()) + 1 if m else 0
     text = text[:end] + base + text[end:] if end else base + text

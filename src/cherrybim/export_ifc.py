@@ -37,12 +37,14 @@ def ifc_class(e: Entity) -> tuple[str, str | None]:
 
 
 def _dms(deg: float) -> tuple[int, int, int, int]:
+    """Градусы → (градусы, минуты, секунды, миллионные секунды) для IfcCompoundPlaneAngleMeasure.
+    Считается в целых миллионных долях секунды: иначе 0,0225° выходило бы как 1′ 20″ и 1 000 000 миллионных."""
     s = -1 if deg < 0 else 1
-    a = abs(deg)
-    d = int(a)
-    m = int((a - d) * 60)
-    sec = (a - d - m / 60) * 3600
-    return (s * d, s * m, s * int(sec), s * int(round((sec - int(sec)) * 1e6)))
+    micro = round(abs(deg) * 3600 * 10 ** 6)
+    sec, micro = divmod(micro, 10 ** 6)
+    mins, sec = divmod(sec, 60)
+    d, m = divmod(mins, 60)
+    return (s * d, s * m, s * sec, s * micro)
 
 
 def to_ifc(twin: Twin, audience: Privacy, path: str) -> dict:
