@@ -372,6 +372,71 @@ fam("furniture.bookshelf", ({ kit, size: [W, D, H], mat, r }) => {
   }
 });
 
+// перфопанель в духе Multiboard: решётка с шагом 25 мм — восьмигранные окна, между ними перемычки и ромбы узлов
+// (в узле у настоящей плитки малое резьбовое отверстие; его не видно уже с метра). Сквозь окна видна стена. Решётка —
+// у фасада (y 0…thick), сзади до стены — проставки (глубина коробки). render: pitch (шаг), web (перемычка), node
+// (полудиагональ ромба: окно — восьмигранник), thick (толщина плитки), border (кант по краю), colors.body.
+// Одна геометрия на всю панель: 1,9 × 1 м — 3 тыс. узлов, ~30 тыс. треугольников.
+fam("furniture.pegboard", ({ kit, size: [W, D, H], mat, r }) => {
+  const nx = Math.max(1, Math.round(W / (r.pitch ?? 0.025))), nz = Math.max(1, Math.round(H / (r.pitch ?? 0.025)));
+  const px = W / nx, pz = H / nz, w = (r.web ?? 0.005) / 2, k = r.node ?? 0.0109, t = Math.min(r.thick ?? 0.0064, D), rim = r.border ?? 0.006;
+  const pos = [], v = new THREE.Vector3(), u = new THREE.Vector3();
+  const tri = (a, b, c, n) => {                            // обход — так, чтобы лицо смотрело по n
+    v.set(b[0] - a[0], b[1] - a[1], b[2] - a[2]).cross(u.set(c[0] - a[0], c[1] - a[1], c[2] - a[2]));
+    pos.push(...a, ...(v.dot(u.set(...n)) < 0 ? [...c, ...b] : [...b, ...c]));
+  };
+  const quad = (a, b, c, d, n) => { tri(a, b, c, n); tri(a, c, d, n); };
+  const bar = (x0, x1, z0, z1) => {                        // перемычка: лицо, торцы и бока (к стене не видно)
+    quad([x0, 0, z0], [x1, 0, z0], [x1, 0, z1], [x0, 0, z1], [0, -1, 0]);
+    quad([x0, 0, z0], [x0, t, z0], [x0, t, z1], [x0, 0, z1], [-1, 0, 0]);
+    quad([x1, 0, z0], [x1, t, z0], [x1, t, z1], [x1, 0, z1], [1, 0, 0]);
+    quad([x0, 0, z0], [x1, 0, z0], [x1, t, z0], [x0, t, z0], [0, 0, -1]);
+    quad([x0, 0, z1], [x1, 0, z1], [x1, t, z1], [x0, t, z1], [0, 0, 1]);
+  };
+  for (let i = 1; i < nx; i++) bar(i * px - w, i * px + w, rim, H - rim);
+  for (let j = 1; j < nz; j++) bar(rim, W - rim, j * pz - w, j * pz + w);
+  bar(0, rim, 0, H); bar(W - rim, W, 0, H); bar(rim, W - rim, 0, rim); bar(rim, W - rim, H - rim, H);   // кант
+  for (let i = 1; i < nx; i++) for (let j = 1; j < nz; j++) {   // ромбы узлов: срезают углы окон до восьмигранника
+    const x = i * px, z = j * pz, c = [[x + k, z], [x, z + k], [x - k, z], [x, z - k]];
+    tri([x, 0, z], [c[0][0], 0, c[0][1]], [c[1][0], 0, c[1][1]], [0, -1, 0]);
+    tri([x, 0, z], [c[1][0], 0, c[1][1]], [c[2][0], 0, c[2][1]], [0, -1, 0]);
+    tri([x, 0, z], [c[2][0], 0, c[2][1]], [c[3][0], 0, c[3][1]], [0, -1, 0]);
+    tri([x, 0, z], [c[3][0], 0, c[3][1]], [c[0][0], 0, c[0][1]], [0, -1, 0]);
+    for (let s = 0; s < 4; s++) {
+      const [a, b] = [c[s], c[(s + 1) % 4]], n = [a[0] + b[0] - 2 * x, 0, a[1] + b[1] - 2 * z];
+      quad([a[0], 0, a[1]], [b[0], 0, b[1]], [b[0], t, b[1]], [a[0], t, a[1]], n);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.computeVertexNormals();
+  kit.add(geo, mat("body", M.graphite));
+  if (D - t > 0.002) for (const [x, z] of [[0.1, 0.1], [W - 0.1, 0.1], [0.1, H - 0.1], [W - 0.1, H - 0.1]])   // проставки по углам
+    kit.rod(mat("body", M.graphite), [x, t, z], [x, D, z], 0.006, 10);
+});
+
+// сетчатый стеллаж из панелей-решёток на клипсах (кубы ~35 см): полки на каждом ярусе, бока, перегородки и задняя
+// стенка из той же решётки, спереди открыт. render.cells = [кубов по X, по Z] (по умолчанию — из габаритов по 0,35);
+// grid — шаг прутьев (0,05); цвет body
+fam("furniture.wire_shelf", ({ kit, size: [W, D, H], mat, r }) => {
+  const m = mat("body", M.black, "metal");
+  const [nx, nz] = r.cells || [Math.max(1, Math.round(W / 0.35)), Math.max(1, Math.round(H / 0.35))];
+  const g = r.grid ?? 0.05, cw = W / nx, ch = H / nz;
+  const panel = (o, u, v, lu, lv) => {                     // решётка lu × lv от угла o по осям u и v
+    const P = (a, b) => [0, 1, 2].map(k => o[k] + u[k] * a + v[k] * b);
+    for (const a of [0, lu]) kit.rod(m, P(a, 0), P(a, lv), 0.0022, 6);   // рамка
+    for (const b of [0, lv]) kit.rod(m, P(0, b), P(lu, b), 0.0022, 6);
+    for (let a = g; a < lu - g / 2; a += g) kit.rod(m, P(a, 0), P(a, lv), 0.0015, 5);
+    for (let b = g; b < lv - g / 2; b += g) kit.rod(m, P(0, b), P(lu, b), 0.0015, 5);
+  };
+  for (let j = 0; j <= nz; j++) for (let i = 0; i < nx; i++) panel([i * cw, 0, j * ch], [1, 0, 0], [0, 1, 0], cw, D);   // полки
+  for (let j = 0; j < nz; j++) {
+    for (let i = 0; i <= nx; i++) panel([i * cw, 0, j * ch], [0, 1, 0], [0, 0, 1], D, ch);   // бока и перегородки
+    for (let i = 0; i < nx; i++) panel([i * cw, D, j * ch], [1, 0, 0], [0, 0, 1], cw, ch);   // задняя стенка
+  }
+  for (let j = 0; j <= nz; j++) for (let i = 0; i <= nx; i++) for (const y of [0, D]) kit.sphere(m, i * cw, y, j * ch, 0.009, 8);   // клипсы
+});
+
 fam("furniture.nightstand", ({ kit, size: [W, D, H], mat }) => {
   const b = mat("body", M.white), f = mat("front", b);
   legs(kit, M.walnut, 0, 0, W, D, 0.1, 0.016, 0.04);

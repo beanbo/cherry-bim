@@ -356,3 +356,75 @@ def test_page_copies_utf8_and_fast():
     assert title_of(b"<title>" * 200_000, "text/html") is None
     assert html_copy(b"<head" * 200_000, "https://example.com/").startswith(b'<meta charset="utf-8">')
     assert time.time() - t < 2
+
+
+def _idea(store, key="polka", **extra):
+    store.ideas_dir.mkdir(parents=True, exist_ok=True)
+    raw = {"key": key, "title": "Полка над столом", "summary": "Кратко", "about": "kv12.bedroom",
+           "views": [{"name": "сверху", "eye": [0, 0, 3], "at": [1, 1, 1], "fit": 2}],
+           "add": [{"key": "idea.polka", "kind": "furniture", "type": "wall_shelf", "name": "Полка", "parent": "kv12.bedroom",
+                    "placement": {"pos": [1, 1, 1.5]}, "geom": {"type": "box", "size": [1, 0.3, 0.02]}}],
+           "change": [{"ref": "kv12.bedroom.wardrobe", "placement": {"pos": [0.5, 0.5, 0]}, "note": "к окну"}],
+           "remove": ["kv12.bedroom.wardrobe.dr2"], **extra}
+    (store.ideas_dir / f"{key}.idea.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+
+
+def test_ideas_list_preview_and_feedback(client, store):
+    _idea(store)
+    (store.ideas_dir / "bad.idea.json").write_text("{", encoding="utf-8")       # кривой файл виден с ошибкой
+    _idea(store, "secret", privacy="owner")                                      # строже аудитории — не виден
+    r = client.get("/api/ideas").json()
+    by = {i["key"]: i for i in r["ideas"]}
+    assert set(by) == {"polka", "bad"} and "error" in by["bad"] and r["statuses"]["planned"] == "в планах"
+    assert by["polka"]["counts"] == {"add": 1, "change": 1, "remove": 1} and by["polka"]["status"] == "idea"
+    assert client.get("/api/twin").json()["features"]["ideas"] == 2
+    snap = client.get("/api/twin", params={"idea": "polka"}).json()
+    marks = {e["key"]: e["idea"] for e in snap["entities"] if "idea" in e}
+    assert marks == {"idea.polka": "add", "kv12.bedroom.wardrobe": "change", "kv12.bedroom.wardrobe.dr2": "remove",
+                     "kv12.bedroom.wardrobe.dr2.drill": "remove"}
+    assert not any(e["editable"] for e in snap["entities"])                     # вариант смотрят, а не правят
+    info = snap["idea"]
+    assert [a["name"] for a in info["added"]] == ["Полка"] and info["changed"][0]["note"] == "к окну"
+    assert len(info["views"]) == 1 and info["views"][0]["fit"] == 2 and len(info["views"][0]["eye"]) == 3
+    assert client.get("/api/twin", params={"idea": "нет"}).status_code == 404
+    assert client.get("/api/twin", params={"idea": "bad"}).status_code == 400
+    assert client.get("/api/twin", params={"idea": "secret"}).status_code == 404
+    # статус и заметка — в state.json, файл идеи не трогается
+    before = (store.ideas_dir / "polka.idea.json").read_text(encoding="utf-8")
+    r = client.post("/api/ideas/polka", json={"status": "planned", "note": "Шире на 10 см"}).json()
+    assert r["status"] == "planned" and r["notes"][0]["text"] == "Шире на 10 см"
+    assert client.post("/api/ideas/polka", json={"status": "кое-как"}).status_code == 400
+    assert (store.ideas_dir / "polka.idea.json").read_text(encoding="utf-8") == before
+    state = json.loads((store.ideas_dir / "state.json").read_text(encoding="utf-8"))
+    assert state["polka"]["status"] == "planned" and len(state["polka"]["notes"]) == 1
+    # обычный снимок без пометок; файл идеи поправили — список перечитан
+    assert not any("idea" in e for e in client.get("/api/twin").json()["entities"])
+    _idea(store, title="Полка пошире")
+    import os
+    f = store.ideas_dir / "polka.idea.json"
+    os.utime(f, (f.stat().st_atime, f.stat().st_mtime + 5))
+    assert next(i for i in client.get("/api/ideas").json()["ideas"] if i["key"] == "polka")["title"] == "Полка пошире"
+
+
+def test_mesh_served_for_visible_entities(client, store):
+    # готовая модель: GLB из папки моделей — только видимой сущности с geom mesh, в том числе из варианта идеи
+    pytest.importorskip("numpy")
+    from cherrybim.io_mesh import write_glb
+    store.assets_dir.mkdir(parents=True, exist_ok=True)
+    write_glb(store.assets_dir / "holder.glb", [{"vertices": [[0, 0, 0], [0.1, 0, 0], [0, 0.1, 0]], "triangles": [[0, 1, 2]]}])
+    _idea(store, "derzhatel", add=[{"key": "idea.holder", "kind": "furniture", "type": "holder", "name": "Держатель",
+                                    "parent": "kv12.bedroom", "placement": {"pos": [1, 1, 1.2]},
+                                    "geom": {"type": "mesh", "asset": "holder.glb"}},
+                                   {"key": "idea.lost", "kind": "furniture", "name": "Без файла", "parent": "kv12.bedroom",
+                                    "geom": {"type": "mesh", "asset": "../packages/x.glb"}}])
+    snap = client.get("/api/twin", params={"idea": "derzhatel"}).json()
+    holder = next(e for e in snap["entities"] if e.get("key") == "idea.holder")
+    assert holder["geom"] == {"type": "mesh", "asset": "holder.glb"}
+    r = client.get(f"/api/mesh/{holder['id']}", params={"idea": "derzhatel"})
+    assert r.status_code == 200 and r.headers["content-type"] == "model/gltf-binary" and r.content[:4] == b"glTF"
+    assert client.get(f"/api/mesh/{holder['id']}").status_code == 404          # в двойнике его нет — только в идее
+    lost = next(e for e in snap["entities"] if e.get("key") == "idea.lost")
+    assert client.get(f"/api/mesh/{lost['id']}", params={"idea": "derzhatel"}).status_code == 404   # вне папки моделей
+    assert client.get("/api/mesh/kv12.bedroom").status_code == 404              # не модель
+    assert client.get("/static/mesh.js").status_code == 200
+

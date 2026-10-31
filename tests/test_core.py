@@ -123,3 +123,86 @@ def test_plan_label_point_stays_inside_l_shape():
     c = _center(ell)
     assert _in_poly(c, ell) and _edge_dist(c, ell) >= 0.9
     assert _center([(3, 4)]) == (3, 4)
+
+
+def test_idea_variant_add_change_remove(demo):
+    # идея — слой поверх пакетов: новое с выведенным id, правка копией, убранное вместе с содержимым; пакеты не меняются
+    from cherrybim.ideas import Idea, IdeaError, apply
+    raw = {"key": "polka", "title": "Полка", "about": "kv12.bedroom",
+           "add": [{"key": "idea.polka", "kind": "furniture", "type": "wall_shelf", "name": "Полка", "parent": "kv12.bedroom",
+                    "placement": {"pos": [1, 1, 1.5]}, "geom": {"type": "box", "size": [1, 0.3, 0.02]}},
+                   {"key": "idea.polka.c1", "kind": "storage", "name": "На полке", "parent": "idea.polka"}],
+           "change": [{"ref": "kv12.bedroom.wardrobe", "placement": {"pos": [0.5, 0.5, 0]}, "props": {"note": "к окну"},
+                       "note": "ближе к окну"}],
+           "remove": ["kv12.bedroom.wardrobe.dr2", "нет-такого"]}
+    idea = Idea.model_validate(raw)
+    assert idea.add[0].id == make_id("idea:polka", "idea.polka") == Idea.model_validate(raw).add[0].id
+    v = apply(list(demo), idea)
+    t = v.twin
+    shelf, place = t.by_key["idea.polka"], t.by_key["idea.polka.c1"]
+    assert place.parent == shelf.id and v.marks[shelf.id] == v.marks[place.id] == "add"
+    wardrobe = t.by_key["kv12.bedroom.wardrobe"]
+    assert v.marks[wardrobe.id] == "change" and wardrobe.placement.pos == (0.5, 0.5, 0) and v.notes[wardrobe.id] == "ближе к окну"
+    drill = t.by_key["kv12.bedroom.wardrobe.dr2.drill"]
+    assert v.marks[drill.id] == v.marks[t.by_key["kv12.bedroom.wardrobe.dr2"].id] == "remove"
+    assert v.warnings == ["убрать: нет «нет-такого»"] and v.about == t.by_key["kv12.bedroom"].id
+    base = next(e for p in demo for e in p.entities if e.key == "kv12.bedroom.wardrobe")
+    assert base.placement.pos != (0.5, 0.5, 0) and "note" not in base.props          # исходный пакет не тронут
+    with pytest.raises(IdeaError):                                               # новому некуда встать
+        apply(list(demo), Idea.model_validate({**raw, "add": [{**raw["add"][0], "parent": "нет-такого"}]}))
+
+
+def test_idea_remove_keeps_what_it_moves_out(demo):
+    # стеллаж уходит, а вещь с него идея переложила на новую полку: вещь — «изменится», а не «уберут»
+    from cherrybim.ideas import Idea, apply
+    idea = Idea.model_validate({
+        "key": "pereezd", "title": "Новая полка вместо ящика",
+        "add": [{"key": "idea.polka", "kind": "furniture", "type": "wall_shelf", "name": "Полка", "parent": "kv12.bedroom",
+                 "placement": {"pos": [1, 1, 1.5]}, "geom": {"type": "box", "size": [1, 0.3, 0.02]}}],
+        "change": [{"ref": "kv12.bedroom.wardrobe.dr2.drill", "parent": "idea.polka", "placement": {"pos": [0.1, 0.05, 0.02]}}],
+        "remove": ["kv12.bedroom.wardrobe.dr2"]})
+    v = apply(list(demo), idea)
+    t = v.twin
+    drill, box = t.by_key["kv12.bedroom.wardrobe.dr2.drill"], t.by_key["kv12.bedroom.wardrobe.dr2"]
+    assert v.marks[box.id] == "remove" and v.marks[drill.id] == "change" and drill.parent == t.by_key["idea.polka"].id
+
+
+def test_mesh_3mf_to_glb_roundtrip(tmp_path):
+    # модель для печати (мм, компонент со сдвигом, повёрнута на столе) → GLB в метрах от угла габарита, упрощённая
+    pytest.importorskip("numpy")
+    import zipfile
+    from cherrybim.io_mesh import cluster, mesh_to_glb, read_glb, read_3mf, read_stl
+    cube = "".join(f'<vertex x="{x}" y="{y}" z="{z}"/>' for x in (0, 20) for y in (0, 10) for z in (0, 5))
+    faces = [(0, 1, 3), (0, 3, 2), (4, 6, 7), (4, 7, 5), (0, 4, 5), (0, 5, 1), (2, 3, 7), (2, 7, 6), (0, 2, 6), (0, 6, 4),
+             (1, 5, 7), (1, 7, 3)]
+    tris = "".join(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in faces)
+    core = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
+    prod = "http://schemas.microsoft.com/3dmanufacturing/production/2015/06"
+    part = (f'<model xmlns="{core}" unit="millimeter"><resources><object id="1" type="model"><mesh><vertices>{cube}'
+            f'</vertices><triangles>{tris}</triangles></mesh></object></resources><build/></model>')
+    main = (f'<model xmlns="{core}" xmlns:p="{prod}" unit="millimeter"><resources><object id="2" type="model"><components>'
+            f'<component p:path="/3D/Objects/part.model" objectid="1" transform="1 0 0 0 1 0 0 0 1 100 50 0"/>'
+            f'</components></object></resources><build><item objectid="2" transform="1 0 0 0 1 0 0 0 1 10 10 0"/></build></model>')
+    src = tmp_path / "holder.3mf"
+    with zipfile.ZipFile(src, "w") as z:
+        z.writestr("3D/3dmodel.model", main)
+        z.writestr("3D/Objects/part.model", part)
+    parts = read_3mf(src)
+    assert len(parts) == 1 and parts[0].vertices.min(0).tolist() == [110, 60, 0] and len(parts[0].triangles) == 12
+    info = mesh_to_glb(src, tmp_path / "holder.glb", rot_z=90, color="#202020")
+    assert info["size"] == [0.01, 0.02, 0.005] and info["tris"] == [12]     # повёрнут: 20 мм легли вдоль Y
+    gltf, prims = read_glb(tmp_path / "holder.glb")
+    (v, t), = prims
+    assert v.min(0).tolist() == [0, 0, 0] and abs(float(v.max(0)[1]) - 0.02) < 1e-6 and len(t) == 12
+    assert gltf["accessors"][0]["max"][2] == pytest.approx(0.005) and gltf["materials"][0]["pbrMetallicRoughness"]["baseColorFactor"][0] < 0.02
+    # слияние вершин: мелкая сетка не трогает куб, крупная схлопывает его в точку — треугольников не остаётся
+    import numpy as np
+    vv, tt = cluster(parts[0].vertices, parts[0].triangles, 1.0)
+    assert len(vv) == 8 and len(tt) == 12
+    assert len(cluster(parts[0].vertices, parts[0].triangles, 100.0)[1]) == 0
+    # STL текстом — тот же путь
+    stl = tmp_path / "tri.stl"
+    stl.write_text("\n".join(["solid t", "facet normal 0 0 1", "outer loop", "vertex 0 0 0", "vertex 1 0 0", "vertex 0 1 0",
+                              "endloop", "endfacet", "endsolid t", ""]))
+    (p0,) = read_stl(stl)
+    assert len(p0.vertices) == 3 and np.array_equal(p0.vertices[p0.triangles[0]], [[0, 0, 0], [1, 0, 0], [0, 1, 0]])

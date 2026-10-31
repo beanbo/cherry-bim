@@ -130,6 +130,51 @@ form.doc input:not([type=checkbox]), form.doc select, form.add textarea {
 }
 form.doc label { display: flex; gap: 6px; align-items: center; }
 
+/* идеи: список, карточка, полоса предпросмотра «Было / Стало» */
+#card ul.ideas { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }
+#card ul.ideas li {
+  display: grid; gap: 3px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+}
+#card ul.ideas li:hover, #card ul.ideas li.on { border-color: var(--accent); }
+#card ul.ideas .t { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
+#card ul.ideas small { color: var(--muted); }
+#card ul.ideas small.err { color: var(--accent); }
+#card p { margin: 8px 0; }
+#card .chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0 4px; }
+.chip {
+  border: 1px solid var(--line); background: var(--chip); border-radius: 999px; padding: 2px 9px; font-size: 12px;
+  white-space: nowrap; color: var(--muted);
+}
+button.chip { cursor: pointer; }
+.chip.st-liked, .chip.st-planned { color: var(--ok); }
+.chip.st-done { color: var(--ink); }
+.chip.st-rejected { text-decoration: line-through; }
+#card .chips .chip.on { background: var(--ink); color: var(--panel); border-color: var(--ink); text-decoration: none; }
+#card ul.notes { list-style: none; padding: 0; }
+#card ul.notes li { background: var(--chip); border-radius: 9px; padding: 6px 9px; margin: 4px 0; }
+form.idea-note { display: grid; gap: 6px; margin-top: 6px; }
+form.idea-note textarea {
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: var(--bg); font: inherit; resize: vertical;
+}
+#ideabar {
+  position: absolute; left: 0; right: 0; top: 10px; margin-inline: auto; width: max-content; max-width: calc(100% - 24px);
+  z-index: 3; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; align-items: center;
+  background: var(--panel); border: 1px solid var(--accent);
+  border-radius: 12px; padding: 5px 6px 5px 12px; box-shadow: var(--shadow);
+}
+#ideabar a {
+  color: var(--link); font-weight: 600; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+#ideabar button {
+  border: 1px solid var(--line); background: var(--panel); padding: 5px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap;
+}
+#ideabar button.on { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+#ideabar button:disabled { opacity: .45; cursor: default; }
+#ideabar .seg { display: flex; }
+#ideabar .seg button:first-child { border-radius: 8px 0 0 8px; }
+#ideabar .seg button:last-child { border-radius: 0 8px 8px 0; border-left: 0; }
+#ideabar [data-bar="close"] { border: 0; font-size: 20px; line-height: 1; padding: 2px 8px; color: var(--muted); }
+
 #status {
   position: fixed; left: 12px; bottom: 10px; display: flex; gap: 7px; align-items: center; font-size: 12px; color: var(--muted);
   background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; z-index: 2;
@@ -147,6 +192,10 @@ form.doc label { display: flex; gap: 6px; align-items: center; }
   #views button, #toggles button { padding: 6px 8px; font-size: 14px; }
   #card { left: 8px; right: 8px; width: auto; top: auto; bottom: 8px; max-height: 58dvh; border-radius: 14px; }
   #status { display: none; }
+  #ideabar { top: 8px; padding: 5px 6px; gap: 5px; font-size: 14px; }
+  #ideabar a { order: -2; flex: 1 1 calc(100% - 44px); padding-left: 6px; }   /* название и × — первой строкой */
+  #ideabar [data-bar="close"] { order: -1; }
+  #ideabar button { padding: 4px 8px; }
 }
 .row a { align-self: center; }
 
@@ -155,6 +204,6 @@ form.doc label { display: flex; gap: 6px; align-items: center; }
 
 /* ?tv=1 — экран телевизора: только сцена во весь кадр, тёмный фон, камеру ведёт режиссёр */
 body.tv { display: block; background: #0b0d12; }
-body.tv #bar, body.tv #card, body.tv #status, body.tv #toast, body.tv #labels { display: none !important; }
+body.tv #bar, body.tv #card, body.tv #status, body.tv #toast, body.tv #labels, body.tv #ideabar { display: none !important; }
 body.tv #stage { position: fixed; inset: 0; }
 body.tv #c { background: radial-gradient(ellipse at 50% 44%, #2b3242 0%, #171b24 52%, #0b0d12 100%); cursor: none; }
