@@ -4,6 +4,10 @@
 Пакеты (*.twin.json) лежат в packages_dir и меняются только пересборкой. Вещи (kind item) и документы,
 добавленные из просмотрщика (kind document), живут в data_dir/items.twin.json: их добавляют, переносят и
 удаляют через API, MCP и голос. Файлы документов — в docs_dir (по умолчанию data_dir/docs), пакет хранит путь.
+Идеи (*.idea.json, ideas.py) — в ideas_dir (по умолчанию data_dir/ideas): их кладут файлами, сервер только читает и
+собирает вариант «как будет»; статус и заметки хозяев — в ideas_dir/state.json.
+Готовые 3D-модели (geom mesh, GLB из cherrybim.io_mesh) — в assets_dir (по умолчанию data_dir/assets): пакет хранит
+путь внутри неё, сервер отдаёт файл только видимой сущности.
 Запись атомарная (временный файл + замена), каждая правка поднимает version.
 """
 from __future__ import annotations
@@ -16,12 +20,16 @@ import uuid
 from pathlib import Path
 
 from ..docs import DOC_TYPES, INHERITED, DocError, mime_of, pdf_pages, resolve_file, store_file
+from ..ideas import STATUSES, Idea, IdeaError, Variant
+from ..ideas import apply as apply_idea
 from ..kinds import lookup
-from ..model import Entity, Kind, Package, Privacy, Ref, Source
+from ..model import PRIVACY_RANK, Entity, Kind, Package, Privacy, Ref, Source
 from ..twin import Twin
 
 ITEMS_FILE = "items.twin.json"
 TRASH_FILE = "trash.jsonl"
+IDEA_GLOB = "*.idea.json"
+IDEA_STATE = "state.json"
 PLACE_KINDS = {Kind.storage, Kind.furniture, Kind.space, Kind.unit, Kind.item}   # куда можно положить вещь
 
 
@@ -31,15 +39,21 @@ class StoreError(ValueError):
 
 class Store:
     def __init__(self, packages_dir: str | Path, data_dir: str | Path, audience: Privacy = Privacy.household,
-                 docs_dir: str | Path | None = None):
+                 docs_dir: str | Path | None = None, ideas_dir: str | Path | None = None,
+                 assets_dir: str | Path | None = None):
         self.packages_dir = Path(packages_dir)
         self.data_dir = Path(data_dir)
         self.docs_dir = Path(docs_dir) if docs_dir else self.data_dir / "docs"
+        self.ideas_dir = Path(ideas_dir) if ideas_dir else self.data_dir / "ideas"
+        self.assets_dir = Path(assets_dir) if assets_dir else self.data_dir / "assets"
         self.audience = audience
         self.lock = threading.RLock()
         self.version = 0
         self.visible: set[str] = set()   # id всего, что видит аудитория; пересчитывается в _rebuild
         self.listeners: list = []        # функции без аргументов: зовутся после каждой правки
+        self.ideas: dict[str, dict] = {}     # ключ → {file, idea} или {file, error}
+        self.ideas_stamp: tuple | None = None
+        self.variants: dict[str, tuple[int, Variant]] = {}   # ключ → (version двойника, вариант)
         self.reload()
 
     # ── загрузка ─────────────────────────────────────────────────────────────
@@ -126,20 +140,26 @@ class Store:
         """Всё, что видит аудитория, с готовыми матрицами и путями — для просмотрщика."""
         with self.lock:
             self._check_items_file()
-            t = self.twin
-            ents = []
-            for e in t.visible_to(self.audience):
-                d = e.model_dump(mode="json", by_alias=True, exclude_none=True)
-                d["m"] = t.matrix(e.id)
-                d["path"] = t.path(e.id)
-                d["editable"] = e.kind in (Kind.item, Kind.document) and t.pkg_of[e.id] is self.items
-                d["ru"] = lookup(e.kind, e.type)[0]
-                if e.kind == Kind.document:      # копия правда лежит в папке документов (пакет могли выложить раньше)
-                    d["copy"] = bool(e.props.get("file")) and self._copy_exists(e.props["file"])
-                ents.append(d)
-            return {"version": self.version, "georef": t.georef.model_dump() if t.georef else None,
-                    "packages": [{"id": p.id, "name": p.name, "root": p.root} for p in self.base],
-                    "entities": ents}
+            return self._snapshot(self.twin)
+
+    def _snapshot(self, t: Twin, marks: dict[str, str] | None = None) -> dict:
+        """Снимок двойника t. marks — вариант идеи: у сущностей пометка idea (add, change, remove), правка вещей
+        из просмотра варианта не идёт (он показывает «как будет», а не учёт)."""
+        ents = []
+        for e in t.visible_to(self.audience):
+            d = e.model_dump(mode="json", by_alias=True, exclude_none=True)
+            d["m"] = t.matrix(e.id)
+            d["path"] = t.path(e.id)
+            d["editable"] = marks is None and e.kind in (Kind.item, Kind.document) and t.pkg_of[e.id] is self.items
+            d["ru"] = lookup(e.kind, e.type)[0]
+            if e.kind == Kind.document:          # копия правда лежит в папке документов (пакет могли выложить раньше)
+                d["copy"] = bool(e.props.get("file")) and self._copy_exists(e.props["file"])
+            if marks and e.id in marks:
+                d["idea"] = marks[e.id]
+            ents.append(d)
+        return {"version": self.version, "georef": t.georef.model_dump() if t.georef else None,
+                "packages": [{"id": p.id, "name": p.name, "root": p.root} for p in self.base],
+                "entities": ents}
 
     def bound_entities(self) -> set[str]:
         """entity_id HA, к которым привязан двойник (для живых состояний); sun.sun — небо за окнами по времени суток."""
@@ -216,6 +236,137 @@ class Store:
                                if k.kind in (Kind.storage, Kind.furniture)],
                     "items": items_under(place.id)}
 
+    # ── идеи ─────────────────────────────────────────────────────────────────
+    def _check_ideas(self) -> None:
+        """Идеи кладут и правят файлами (Claude, git, Samba): папка поменялась — перечитать. Кривой файл не прячется,
+        а показывается в списке с ошибкой: иначе автор идеи не узнал бы, почему её нет."""
+        try:
+            files = sorted(self.ideas_dir.glob(IDEA_GLOB)) if self.ideas_dir.is_dir() else []
+            stamp = self._stamp(files)
+        except OSError:
+            return
+        if stamp == self.ideas_stamp:
+            return
+        self.ideas_stamp, self.ideas, self.variants = stamp, {}, {}
+        for f in files:
+            key = f.name[:-len(".idea.json")]
+            try:
+                idea = Idea.model_validate(json.loads(f.read_text(encoding="utf-8")))
+            except (OSError, ValueError) as err:          # битый JSON, не та схема
+                self.ideas[key] = {"file": f.name, "error": str(err).split("\n")[0][:300]}
+                continue
+            if idea.key in self.ideas:
+                self.ideas[f"{idea.key}@{f.name}"] = {"file": f.name, "error": f"ключ «{idea.key}» уже занят"}
+            elif PRIVACY_RANK[idea.privacy] <= PRIVACY_RANK[self.audience]:   # строже аудитории — её как нет
+                self.ideas[idea.key] = {"file": f.name, "idea": idea}
+
+    def _variant(self, key: str) -> Variant:
+        rec = self.ideas.get(key)
+        if rec is None:
+            raise StoreError(f"нет идеи «{key}»")
+        if "error" in rec:
+            raise StoreError(f"идея «{key}» не читается: {rec['error']}")
+        cached = self.variants.get(key)
+        if cached and cached[0] == self.version:
+            return cached[1]
+        try:
+            v = apply_idea(self.base + [self.items], rec["idea"])
+        except (IdeaError, ValueError) as err:
+            raise StoreError(f"идея «{key}» не собирается: {err}") from err
+        self.variants[key] = (self.version, v)
+        return v
+
+    def _idea_state(self) -> dict:
+        try:
+            return json.loads((self.ideas_dir / IDEA_STATE).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def _idea_info(self, key: str, detail: bool = False) -> dict:
+        rec, row = self.ideas[key], self._idea_state().get(key, {})
+        status = row.get("status", "idea")
+        info = {"key": key, "file": rec["file"], "status": status, "status_ru": STATUSES.get(status, status),
+                "notes": row.get("notes", [])}
+        if "error" in rec:
+            return {**info, "title": key, "error": rec["error"]}
+        idea = rec["idea"]
+        info.update(title=idea.title, summary=idea.summary, tags=idea.tags, author=idea.author, created=idea.created)
+        try:
+            v = self._variant(key)
+        except StoreError as err:
+            return {**info, "error": str(err)}
+        t, vis = v.twin, {e.id for e in v.twin.visible_to(self.audience)}
+
+        def top(mark: str) -> list[Entity]:              # без того, что внутри: стеллаж, а не каждая его полка
+            return [t.by_id[i] for i, m in v.marks.items() if m == mark and i in vis and v.marks.get(t.by_id[i].parent) != mark]
+        added, removed = top("add"), top("remove")
+        changed = [t.by_id[i] for i, m in v.marks.items() if m == "change" and i in vis]
+        info.update(counts={"add": len(added), "change": len(changed), "remove": len(removed)}, warnings=v.warnings)
+        if v.about and v.about in vis:
+            info["about"] = {"id": v.about, "name": t.by_id[v.about].name, "short": self._short(t, v.about)}
+        if detail:
+            row_of = lambda e: {"id": e.id, "name": e.name, "ru": lookup(e.kind, e.type)[0],   # noqa: E731
+                                **({"size": list(e.geom.size)} if getattr(e.geom, "size", None) else {}),
+                                **({"note": v.notes[e.id]} if e.id in v.notes else {})}
+            info.update(text=idea.text, added=[row_of(e) for e in added], changed=[row_of(e) for e in changed],
+                        removed=[row_of(e) for e in removed])
+            info["views"] = []
+            for w in idea.views:                          # глаз и цель — из системы about в систему участка
+                eye, at = t.to_site(v.about, [w.eye, w.at]) if v.about else [w.eye, w.at]
+                info["views"].append({**w.model_dump(exclude_none=True), "eye": list(eye), "at": list(at)})
+        return info
+
+    @staticmethod
+    def _short(t: Twin, ref: str) -> str:
+        chain = [t.get(ref)] + t.ancestors(ref)
+        unit = next((i for i, a in enumerate(chain) if a.kind == Kind.unit), None)
+        return " → ".join(a.name for a in reversed(chain[:unit] if unit else chain))
+
+    def ideas_list(self) -> list[dict]:
+        with self.lock:
+            self._check_items_file()
+            self._check_ideas()
+            return [self._idea_info(k) for k in self.ideas]
+
+    def ideas_count(self) -> int:
+        with self.lock:
+            self._check_ideas()
+            return len(self.ideas)
+
+    def idea_snapshot(self, key: str) -> dict:
+        """Снимок варианта «как будет» и подробности идеи (что добавится, изменится, уйдёт; точка обзора)."""
+        with self.lock:
+            self._check_items_file()
+            self._check_ideas()
+            v = self._variant(key)
+            snap = self._snapshot(v.twin, v.marks)
+            snap["idea"] = self._idea_info(key, detail=True)
+            return snap
+
+    def set_idea(self, key: str, status: str | None = None, note: str | None = None, by: str | None = None) -> dict:
+        """Статус идеи и заметка хозяев. Сам файл идеи не меняется: его пишет автор, а это — ответ на него."""
+        with self.lock:
+            self._check_ideas()
+            if key not in self.ideas:
+                raise StoreError(f"нет идеи «{key}»")
+            if status is not None and status not in STATUSES:
+                raise StoreError("статус: " + ", ".join(STATUSES))
+            note = note.strip() if isinstance(note, str) else ""
+            if len(note) > 2000:
+                raise StoreError("заметка — до 2000 знаков")
+            st = self._idea_state()
+            row, now = st.setdefault(key, {}), time.strftime("%Y-%m-%d %H:%M")
+            if status is not None and status != row.get("status", "idea"):
+                row.update(status=status, status_at=now, **({"status_by": by} if by else {}))
+            if note:
+                row.setdefault("notes", []).append({"at": now, "text": note, **({"by": by} if by else {})})
+            self.ideas_dir.mkdir(parents=True, exist_ok=True)
+            f = self.ideas_dir / IDEA_STATE
+            tmp = f.with_suffix(".tmp")
+            tmp.write_text(json.dumps(st, ensure_ascii=False, indent=1), encoding="utf-8")
+            os.replace(tmp, f)
+            return self._idea_info(key)
+
     # ── документы ────────────────────────────────────────────────────────────
     def doc_info(self, d: Entity) -> dict:
         p = d.props
@@ -271,6 +422,26 @@ class Store:
             except DocError as err:
                 raise StoreError(f"копии «{d.name}» нет в папке документов") from err
             return path, mime_of(path), Path(rel).name
+
+    def mesh_file(self, ref: str, idea: str | None = None) -> Path:
+        """Файл готовой модели (geom mesh) сущности, видимой аудитории, — в двойнике или в варианте идеи."""
+        with self.lock:
+            self._check_items_file()
+            if idea:
+                self._check_ideas()
+                t = self._variant(idea).twin
+                e = t.by_id.get(ref) or t.by_key.get(ref)
+                seen = e is not None and any(x.id == e.id for x in t.visible_to(self.audience))
+            else:
+                e = self.twin.by_id.get(ref) or self.twin.by_key.get(ref)
+                seen = e is not None and e.id in self.visible
+            if not seen or getattr(e.geom, "type", None) != "mesh":
+                raise StoreError("нет такой модели")
+            try:
+                path = resolve_file(self.assets_dir, e.geom.asset)
+            except DocError as err:
+                raise StoreError(f"файла модели «{e.name}» нет в папке моделей") from err
+            return path
 
     def add_doc(self, to: str, title: str, type: str = "note", url: str | None = None, data: bytes | None = None,
                 filename: str | None = None, note: str | None = None, by: str | None = None,

@@ -140,6 +140,31 @@
    "ifc": "IfcFurniture",
    "ifc_type": "SHELF"
   },
+  "rack": {
+   "ru": "стеллаж",
+   "ifc": "IfcFurniture",
+   "ifc_type": "SHELF"
+  },
+  "wall_shelf": {
+   "ru": "настенная полка",
+   "ifc": "IfcFurniture",
+   "ifc_type": "SHELF"
+  },
+  "pegboard": {
+   "ru": "перфопанель",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "wire_shelf": {
+   "ru": "сетчатый стеллаж",
+   "ifc": "IfcFurniture",
+   "ifc_type": "SHELF"
+  },
+  "holder": {
+   "ru": "настенный держатель",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
   "wardrobe": {
    "ru": "шкаф",
    "ifc": "IfcFurniture",
@@ -332,6 +357,76 @@
   "hammer_drill": {
    "ru": "перфоратор",
    "ifc": "IfcElectricAppliance",
+   "ifc_type": "USERDEFINED"
+  },
+  "plastic_box": {
+   "ru": "контейнер с крышкой",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "stick_vacuum": {
+   "ru": "вертикальный пылесос",
+   "ifc": "IfcElectricAppliance",
+   "ifc_type": "USERDEFINED"
+  },
+  "garment_steamer": {
+   "ru": "отпариватель",
+   "ifc": "IfcElectricAppliance",
+   "ifc_type": "USERDEFINED"
+  },
+  "iron": {
+   "ru": "утюг",
+   "ifc": "IfcElectricAppliance",
+   "ifc_type": "USERDEFINED"
+  },
+  "hair_styler": {
+   "ru": "стайлер, фен",
+   "ifc": "IfcElectricAppliance",
+   "ifc_type": "USERDEFINED"
+  },
+  "duster": {
+   "ru": "метёлка для пыли",
+   "ifc": "IfcBuildingElementProxy",
+   "ifc_type": "USERDEFINED"
+  },
+  "mop": {
+   "ru": "швабра",
+   "ifc": "IfcBuildingElementProxy",
+   "ifc_type": "USERDEFINED"
+  },
+  "dustpan": {
+   "ru": "совок с веником",
+   "ifc": "IfcBuildingElementProxy",
+   "ifc_type": "USERDEFINED"
+  },
+  "bucket": {
+   "ru": "ведро",
+   "ifc": "IfcBuildingElementProxy",
+   "ifc_type": "USERDEFINED"
+  },
+  "basin": {
+   "ru": "таз",
+   "ifc": "IfcBuildingElementProxy",
+   "ifc_type": "USERDEFINED"
+  },
+  "supplies": {
+   "ru": "запас, расходники",
+   "ifc": "IfcBuildingElementProxy",
+   "ifc_type": "USERDEFINED"
+  },
+  "tools": {
+   "ru": "инструменты",
+   "ifc": "IfcBuildingElementProxy",
+   "ifc_type": "USERDEFINED"
+  },
+  "food": {
+   "ru": "продукты, заготовки",
+   "ifc": "IfcBuildingElementProxy",
+   "ifc_type": "USERDEFINED"
+  },
+  "pet_supplies": {
+   "ru": "вещи для собаки",
+   "ifc": "IfcBuildingElementProxy",
    "ifc_type": "USERDEFINED"
   }
  },

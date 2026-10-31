@@ -64,6 +64,13 @@ export class Kit {
       .multiply(new THREE.Matrix4().makeRotationZ(r)).multiply(new THREE.Matrix4().makeTranslation(-ox, -oy, 0));
     this.at(m, fn);
   }
+  // поворот вокруг горизонтали X через (oy, oz), градусы: +90 кладёт ось Z вдоль −Y (вещь висит на стене плашмя)
+  tiltX(deg, oy, oz, fn) {
+    const r = THREE.MathUtils.degToRad(deg);
+    const m = new THREE.Matrix4().makeTranslation(0, oy, oz)
+      .multiply(new THREE.Matrix4().makeRotationX(r)).multiply(new THREE.Matrix4().makeTranslation(0, -oy, -oz));
+    this.at(m, fn);
+  }
   mirrorX(cx, fn) {                                        // зеркально по X относительно x = cx (левые и правые детали)
     const m = new THREE.Matrix4().makeTranslation(cx, 0, 0).multiply(new THREE.Matrix4().makeScale(-1, 1, 1))
       .multiply(new THREE.Matrix4().makeTranslation(-cx, 0, 0));

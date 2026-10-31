@@ -4,7 +4,7 @@
 
 *Open-source core for residential digital twins, from a city block down to a drawer. A compact JSON model aligned with IFC 4.3, GeoJSON/IMDF, CityJSON and Brick. Python (pydantic) is the source of truth, JSON Schema serves other languages, and IFC4 export goes through IfcOpenShell. Docs are in Russian.*
 
-> Статус: v0.5, ранняя версия. Формат может меняться до 1.0.
+> Статус: v0.6, ранняя версия. Формат может меняться до 1.0.
 
 ## Зачем
 
@@ -38,6 +38,8 @@
   - JSON Schema и словарь типов (`schema/kinds.json`: подтип → русское название → класс IFC).
 - **Документы у вещей**: инструкции, проект и чертежи, чеки, гарантии, страницы магазина — со ссылкой и локальной копией (PDF, файл, копия страницы); закрытые номера вещи (IMEI, серийный) — вне поиска и голоса.
 - **Импорт мебели** из OpenFurnitureMaker (конструктор корпусной мебели): каждый ящик и отделение шкафа становятся местом хранения. Пакет `ofm` нужен на `sys.path`.
+- **Идеи** (`ideas`): что можно добавить, переставить или убрать — файл `*.idea.json` поверх двойника. Просмотрщик показывает «Было / Стало» с готовых ракурсов, хозяева ставят статус и пишут заметки автору; пакеты двойника идея не меняет.
+- **Готовые модели**: вещь со своей 3D-моделью (напечатанный держатель, ящичек на перфопанели) рисуется ею — GLB из папки моделей сервера. `io_mesh` переводит в такой GLB модели для 3D-печати (3MF, STL).
 - **Мебель из БАЗИС-Мебельщика**: скрипт `tools/bazis/cherrybim-export.js` выгружает модель `.b3d` (панели с вырезами, петли, направляющие, отверстия под ручки), `io_bazis` строит из неё мебель по деталям, двери с петлями, ящики, ручки и места хранения по ячейкам корпуса.
 
 ## Быстрый старт
@@ -77,7 +79,7 @@ IFC: `pip install -e .[ifc]`, затем `from cherrybim.export_ifc import to_if
 ## Структура
 
 ```
-src/cherrybim/    model (pydantic), twin, geo, kinds, export (GeoJSON), export_ifc, io_ofm
+src/cherrybim/    model (pydantic), twin, geo, kinds, ideas, io_mesh, export (GeoJSON), export_ifc, io_ofm
   server/         сервер: store (вещи), ha (Home Assistant), app (API, MCP), static/ (просмотрщик:
                   app.js — сцена и интерфейс, families.js — модели по типам, kit.js — детали, materials.js)
 schema/           JSON Schema и словарь типов — генерируются tools/export_schema.py

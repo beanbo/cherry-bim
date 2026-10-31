@@ -15,6 +15,7 @@ import { Kit } from "./kit.js";
 import { M, pbr, hex } from "./materials.js";
 import { createDirector } from "./director.js";
 import { settleCoplanar } from "./coplanar.js";
+import { loadMesh } from "./mesh.js";
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);                  // как в модели: Z вверх, метры
 
@@ -90,7 +91,8 @@ renderer.shadowMap.enabled = QS.get("shadows") !== "0";
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.NeutralToneMapping;
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(40, 1, 0.03, 5000);
+const FOV = 40;                                           // угол зрения по вертикали; ракурс идеи может задать свой
+const camera = new THREE.PerspectiveCamera(FOV, 1, 0.03, 5000);
 camera.position.set(-12, -18, 22);
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
@@ -168,10 +170,11 @@ new ResizeObserver(resize).observe(canvas);
 const S = {
   data: null, ver: -1, by: new Map(), kids: new Map(), refsIn: new Map(), obj: new Map(), labels: [],
   unit: null, view: "unit", cut: true, mep: false, sel: null, states: {}, ha: {}, features: {},
-  floorHit: null, puck: null, devices: [], fitted: false,
+  floorHit: null, puck: null, devices: [], fixtures: [], fitted: false,
+  idea: null, ideaInfo: null, ideaView: 0, before: false, glow: false,   // предпросмотр идеи: ключ, подробности, ракурс, «было», подсветка нового
 };
 
-window.cherrybim = { S, scene, camera, controls, invalidate, gtao, sun, renderer, composer };   // для отладки из консоли
+window.cherrybim = { S, scene, camera, controls, invalidate, gtao, sun, renderer, composer, meshes: meshesLoaded };   // для отладки из консоли
 
 function ancestors(id) {
   const out = [];
@@ -189,6 +192,8 @@ const push = (map, k, v) => (map.get(k) || map.set(k, []).get(k)).push(v);
 function index(data) {
   S.data = data; S.ver = data.version; S.features = data.features || {}; S.ha = data.ha || {};
   S.states = data.states || S.states;
+  if (data.idea) S.ideaInfo = data.idea;                  // вариант идеи: подробности приходят вместе со снимком
+  $("#t-ideas").hidden = !(S.features.ideas > 0 || S.idea);
   S.by.clear(); S.kids.clear(); S.refsIn.clear();
   for (const e of data.entities) S.by.set(e.id, e);
   for (const e of data.entities) {
@@ -286,6 +291,25 @@ function ghostOf(m) {                                     // полупрозр�
   }
   return ghosts.get(m);
 }
+// предпросмотр идеи: новое и переставленное — в тёплом оттенке своих цветов, то, что уберут, — красный призрак
+const REMOVED = ghostMat(0xe4572e, 0.22);
+const tints = new Map(), WARM = new THREE.Color(0xff7a1a);
+function tintOf(m) {
+  if (!m || m.userData.pick || m.userData.ghost) return m;
+  if (!tints.has(m)) {                                    // оттенок, а не свечение: тёмное не становится рыжим
+    const g = m.clone();
+    if (g.color) g.color.lerp(WARM, 0.3);
+    if (g.emissive) { g.emissive.copy(WARM); g.emissiveIntensity = 0.04; }
+    g.userData = { tint: true };
+    tints.set(m, g);
+  }
+  return tints.get(m);
+}
+function restMat(c) {                                     // материал меша без подсветки выбора
+  const mark = S.idea && !S.before ? S.by.get(c.userData.id)?.idea : null;
+  if (mark === "remove") return REMOVED;
+  return mark && S.glow ? tintOf(c.userData.mat0) : c.userData.mat0;
+}
 const xrays = new Map();
 function xrayOf(color) {                                  // то, что спрятано в стене или стяжке, видно сквозь неё
   if (!xrays.has(color)) {
@@ -366,7 +390,8 @@ function boxFallback(e) {
   const [x, y, z] = e.geom.size;
   const geo = new THREE.BoxGeometry(x, y, z);
   geo.translate(x / 2, y / 2, z / 2);
-  const color = e.kind === "furniture" ? FURN[e.type] ?? 0xc8ad86 : e.kind === "mep" ? familyColor(e) : 0xcccccc;
+  const own = hex(e.props?.render?.colors?.body, null);    // свой цвет из подсказок пакета (запасы в упаковке, коробки)
+  const color = own ?? (e.kind === "furniture" ? FURN[e.type] ?? 0xc8ad86 : e.kind === "mep" ? familyColor(e) : 0xcccccc);
   const m = new THREE.Mesh(geo, pbr(color, { rough: 0.7 }));
   m.castShadow = m.receiveShadow = true;
   return m;
@@ -530,6 +555,7 @@ function makeObject(e, nextRoomColor) {
   const g = e.geom;
   if (!g) return null;
   if (g.type === "extrusion") return extrusionObject(e, nextRoomColor);
+  if (g.type === "mesh") return meshObject(e);
   let o = null;
   try { o = buildFamily(e, famEnv); } catch (err) { console.warn("модель", e.name, err); }
   if (o) { addPick(e, o); return o; }
@@ -537,6 +563,31 @@ function makeObject(e, nextRoomColor) {
   if (g.type === "polyline") return lineObject(e);
   if (g.type === "point") return marker(e);
   return null;
+}
+
+// готовая модель (GLB из cherrybim.io_mesh): группа сразу, сетки — когда придёт файл. Цвет — из файла или один на
+// всю модель из props.render.colors.body (или "*"): модели для печати красят тем пластиком, каким напечатали
+const meshWaits = new Set();
+let viewTimer = 0;
+function meshObject(e) {
+  const o = new THREE.Group();
+  const url = "api/mesh/" + encodeURIComponent(e.id) + (S.data?.idea && S.idea ? "?idea=" + encodeURIComponent(S.idea) : "");
+  const colors = e.props?.render?.colors || {}, paint = hex(colors.body ?? colors["*"], null);
+  const wait = loadMesh(url).then(parts => {
+    for (const p of parts) {
+      const m = new THREE.Mesh(p.geo, pbr(paint ?? p.color, { rough: p.rough, metal: p.metal }));
+      m.castShadow = m.receiveShadow = true;
+      m.userData.id = e.id;
+      o.add(m);
+    }
+    if (!viewTimer) viewTimer = setTimeout(() => { viewTimer = 0; applyView(); }, 0);   // материалы вида, тень
+  }).catch(err => console.warn("модель", e.name, err.message)).finally(() => meshWaits.delete(wait));
+  meshWaits.add(wait);
+  return o;
+}
+// дождаться моделей (не дольше ms): готовность страницы и снимки ждут, пока они не появятся
+function meshesLoaded(ms = 8000) {
+  return Promise.race([Promise.allSettled([...meshWaits]), new Promise(r => setTimeout(r, ms))]);
 }
 
 // у места хранения и у спрятанной техники — невидимый объём: по нему щёлкают, его подсвечивают
@@ -690,7 +741,7 @@ function build() {
   for (const o of S.obj.values()) o.traverse(c => c.geometry?.dispose());
   helpersLight.children.forEach(c => c.geometry.dispose());
   helpersLight.clear();
-  world.clear(); S.obj.clear(); S.labels.forEach(l => l.el.remove()); S.labels = []; S.devices = []; NB = null;
+  world.clear(); S.obj.clear(); S.labels.forEach(l => l.el.remove()); S.labels = []; S.devices = []; S.fixtures = []; NB = null;
   ceilings.children.forEach(c => c.geometry.dispose());
   ceilings.clear();
   let rn = 0;
@@ -797,6 +848,8 @@ function placeLooseDevices() {
         m.position.set(at.x, at.y, box.min.z);
       }
       m.quaternion.setFromRotationMatrix(new THREE.Matrix4().extractRotation(room.matrixWorld));   // render.angle — от осей комнаты
+      m.userData.ceilZ = box.min.z + ceil;
+      S.fixtures.push(m);
       const pool = lightPool(S.by.get(e.parent), room);
       if (pool) { helpersLight.add(pool); m.userData.pool = pool; }
     } else {                                              // место в комнате неизвестно — индикатор состояния
@@ -936,6 +989,8 @@ function applyView() {
   for (const [id, o] of S.obj) {
     const e = S.by.get(id);
     o.visible = visibleIn(e);
+    // «Стало»: убранного уже нет; красным призраком оно видно только с «Новое» — рядом с тем, что встанет вместо
+    if (e.idea === "remove" && S.idea && !S.before && !S.glow) o.visible = false;
     let over = null;
     if (S.view === "house" && !e._inUnit && o.visible && !e._floor) over = GHOST;
     if (S.view === "site" && e._inUnit) over = ACCENT;
@@ -943,7 +998,7 @@ function applyView() {
     o.traverse(c => {
       if (!c.isMesh || c.userData.xray || c.material === PICK) return;
       if (!c.userData.mat0) c.userData.mat0 = c.material;
-      c.material = c.userData.hl || over || c.userData.mat0;
+      c.material = c.userData.hl || over || restMat(c);
     });
     if (e.kind === "section") o.children.forEach(c => { if (c.userData.noPick) c.visible = S.view !== "site"; });
     if (o.userData.variants) o.children.forEach(c => { c.visible = c.userData.variant === (cut ? "cut" : "full"); });
@@ -1096,6 +1151,12 @@ function frame(now, force = false) {
   const near = Math.min(camera.userData.nearCap ?? Infinity,
     Math.max(camera.userData.near0 ?? camera.near, 0.04 * camera.position.distanceTo(controls.target)));
   if (Math.abs(near - camera.near) > 1e-3 * near) { camera.near = near; camera.updateProjectionMatrix(); }
+  if (S.view === "unit" && !S.cut) for (const m of S.fixtures) {   // сверху, над потолком, плафона не видно, как и потолка:
+    const full = m.children.find(c => c.userData.variant === "full");   // иначе он закрывает комнату
+    if (full) full.visible = camera.position.z < m.userData.ceilZ;
+  }
+  // камера в комнате под потолком: подписи комнат за стенами висели бы поверх этой комнаты
+  const under = S.view === "unit" && !S.cut && S.fixtures.length > 0 && camera.position.z < S.fixtures[0].userData.ceilZ;
   const t0 = performance.now();
   director.beforeRender();
   composer.render();
@@ -1105,7 +1166,7 @@ function frame(now, force = false) {
   const w = canvas.clientWidth, h = canvas.clientHeight;
   for (const l of S.labels) {
     const o = S.obj.get(l.id);
-    const show = l.view === S.view && o && o.visible;
+    const show = l.view === S.view && o && o.visible && !under;
     if (!show) { l.el.style.display = "none"; continue; }
     v3.copy(l.pos).project(camera);
     if (v3.z > 1 || v3.z < -1) { l.el.style.display = "none"; continue; }
@@ -1203,7 +1264,7 @@ function related(e) {
 }
 
 function clearHighlight() {
-  for (const o of S.obj.values()) o.traverse(c => { if (c.userData.hl) { delete c.userData.hl; c.material = c.userData.mat0 || c.material; } });
+  for (const o of S.obj.values()) o.traverse(c => { if (c.userData.hl) { delete c.userData.hl; c.material = c.userData.mat0 ? restMat(c) : c.material; } });
   helpers.children.filter(c => c !== S.puck).forEach(c => { helpers.remove(c); c.traverse(x => x.geometry?.dispose()); });
   invalidate();
 }
@@ -1507,11 +1568,19 @@ function renderTree() {
 $("#card").addEventListener("click", async ev => {
   const a = ev.target.closest("[data-sel]");
   if (a) { ev.preventDefault(); select(a.dataset.sel); return; }
+  const li = ev.target.closest("[data-idea]");
+  if (li) { openIdea(li.dataset.idea); return; }
   const b = ev.target.closest("[data-act]");
   if (!b) return;
   const e = S.sel, act = b.dataset.act;
   try {
     if (act === "close") select(null);
+    else if (act === "ideas") renderIdeas();
+    else if (act === "idea-status") {
+      const r = await send(`api/ideas/${encodeURIComponent(S.idea)}`, { status: b.dataset.st });
+      S.ideaInfo = { ...S.ideaInfo, status: r.status, status_ru: r.status_ru };
+      renderIdea();
+    }
     else if (act === "toggle") { b.disabled = true; await send("api/call", { entity_id: b.dataset.eid, service: "toggle" }); }
     else if (act === "remove" && confirm(`Вычеркнуть «${e.name}»?`)) { await api(`api/items/${e.id}`, { method: "DELETE" }); toast("Вычеркнул"); await reload(e.parent); }
     else if (act === "move") pickPlace(e);
@@ -1543,6 +1612,19 @@ $("#card").addEventListener("click", async ev => {
 $("#card").addEventListener("submit", async ev => {
   const fd = ev.target.closest("form.doc");
   if (fd) { ev.preventDefault(); await addDoc(fd); return; }
+  const fn = ev.target.closest("form.idea-note");
+  if (fn) {                                                // заметка к идее: её прочитает автор
+    ev.preventDefault();
+    const note = fn.note.value.trim();
+    if (!note) return;
+    try {
+      const r = await send(`api/ideas/${encodeURIComponent(S.idea)}`, { note });
+      S.ideaInfo = { ...S.ideaInfo, notes: r.notes };
+      renderIdea();
+      toast("Записал заметку");
+    } catch (err) { toast(err.message); }
+    return;
+  }
   const f = ev.target.closest("form.add");
   if (!f) return;
   ev.preventDefault();
@@ -1678,6 +1760,144 @@ function toast(msg) {
   toastT = setTimeout(() => { t.hidden = true; }, 3200);
 }
 
+// ── идеи: что можно добавить, переставить, убрать — вариант «как будет» рядом с «как есть» ──
+const twinUrl = () => (S.idea && !S.before ? `api/twin?idea=${encodeURIComponent(S.idea)}` : "api/twin");
+const STATUS_ORDER = ["idea", "liked", "planned", "done", "rejected"];
+let STATUSES = { idea: "идея", liked: "нравится", planned: "в планах", done: "сделано", rejected: "не надо" };
+const mm = s => s.map(v => Math.round(v * 1000)).join(" × ") + " мм";
+const counts = i => !i.counts ? "" : [i.counts.add && `добавится ${i.counts.add}`, i.counts.change && `изменится ${i.counts.change}`,
+  i.counts.remove && `уберут ${i.counts.remove}`].filter(Boolean).join(", ");
+
+function ideaText(lines = []) {                           // абзацы; «- » — пункт списка, «## » — подзаголовок
+  let h = "", ul = [];
+  const flush = () => { if (ul.length) h += `<ul>${ul.map(x => `<li>${esc(x)}</li>`).join("")}</ul>`; ul = []; };
+  for (const s of lines) {
+    if (s.startsWith("- ")) { ul.push(s.slice(2)); continue; }
+    flush();
+    h += s.startsWith("## ") ? `<h3>${esc(s.slice(3))}</h3>` : `<p>${esc(s)}</p>`;
+  }
+  flush();
+  return h;
+}
+
+async function renderIdeas() {
+  const card = $("#card");
+  clearHighlight();
+  S.sel = null;
+  const head = `<button class="x" data-act="close" title="Закрыть">×</button><h2>Идеи</h2>`
+    + `<p class="note">Что можно добавить, переставить или убрать. Откройте идею — квартира покажет, как будет.</p>`;
+  card.innerHTML = head + `<p class="note">загрузка…</p>`;
+  card.hidden = false;
+  let r;
+  try { r = await api("api/ideas"); } catch (err) { card.innerHTML = head + `<p class="note">${esc(err.message)}</p>`; return; }
+  STATUSES = r.statuses || STATUSES;
+  const rank = i => (["done", "rejected"].includes(i.status) ? 1 : 0);   // сделанное и отклонённое — внизу
+  const ideas = [...r.ideas].sort((a, b) => rank(a) - rank(b));
+  card.innerHTML = head + (ideas.length ? `<ul class="ideas">${ideas.map(i => `<li data-idea="${esc(i.key)}"${S.idea === i.key ? ' class="on"' : ""}>`
+    + `<span class="t"><b>${esc(i.title)}</b><span class="chip st-${esc(i.status)}">${esc(i.status_ru)}</span></span>`
+    + (i.summary ? `<span>${esc(i.summary)}</span>` : "")
+    + `<small>${[counts(i), i.about?.short].filter(Boolean).map(esc).join(" · ")}</small>`
+    + (i.error ? `<small class="err">${esc(i.error)}</small>` : "") + `</li>`).join("")}</ul>`
+    : `<p class="note">Идей пока нет: их кладут файлами *.idea.json в папку идей.</p>`);
+}
+
+function renderIdea() {
+  const i = S.ideaInfo, card = $("#card");
+  if (!i) return;
+  clearHighlight();
+  S.sel = null;
+  let h = `<button class="x" data-act="close" title="Закрыть">×</button>`;
+  h += `<div class="crumbs"><a data-act="ideas">Идеи</a>${i.about ? ` › ${esc(i.about.short)}` : ""}</div><h2>${esc(i.title)}</h2>`;
+  const by = [i.author, i.created && dmy(i.created)].filter(Boolean);
+  if (by.length) h += `<div class="kind">${by.map(esc).join(" · ")}</div>`;
+  h += `<div class="chips">${STATUS_ORDER.map(s => `<button class="chip st-${s}${i.status === s ? " on" : ""}" data-act="idea-status" data-st="${s}">${esc(STATUSES[s])}</button>`).join("")}</div>`;
+  if (i.summary) h += `<p>${esc(i.summary)}</p>`;
+  h += ideaText(i.text);
+  const list = (title, rows) => !rows?.length ? "" : `<h3>${title}</h3><ul>${rows.map(r => `<li>${S.by.has(r.id) ? link(r) : esc(r.name)}`
+    + ` <small>${esc(r.ru)}${r.size ? " · " + mm(r.size) : ""}</small>${r.note ? `<br><small>${esc(r.note)}</small>` : ""}</li>`).join("")}</ul>`;
+  h += list("Добавится", i.added) + list("Изменится", i.changed) + list("Уберут", i.removed);
+  if (i.warnings?.length) h += `<p class="note">Не нашлось: ${i.warnings.map(esc).join("; ")}</p>`;
+  h += `<h3>Заметки</h3>`;
+  if (i.notes?.length) h += `<ul class="notes">${i.notes.map(n => `<li><small>${esc(dmy(n.at))} ${esc(String(n.at).slice(11))}${n.by ? ` · ${esc(n.by)}` : ""}</small><br>${esc(n.text)}</li>`).join("")}</ul>`;
+  h += `<form class="idea-note"><textarea name="note" rows="3" maxlength="2000" placeholder="Что поправить, что нравится — прочитает автор идеи"></textarea>`
+    + `<button class="btn">Сохранить заметку</button></form>`;
+  card.innerHTML = h;
+  card.hidden = false;
+}
+
+function ideaBar() {
+  const bar = $("#ideabar");
+  bar.hidden = !S.idea;
+  if (!S.idea) return;
+  const views = S.ideaInfo?.views || [];
+  bar.innerHTML = `<a data-bar="card" title="Описание идеи">${esc(S.ideaInfo?.title || S.idea)}</a>`
+    + `<span class="seg"><button data-bar="before"${S.before ? ' class="on"' : ""}>Было</button><button data-bar="after"${S.before ? "" : ' class="on"'}>Стало</button></span>`
+    + (views.length > 1 ? `<span class="seg">${views.map((w, i) => `<button data-bar="view" data-i="${i}"${S.ideaView === i ? ' class="on"' : ""} title="Ракурс">`
+      + `${esc(w.name || `вид ${i + 1}`)}</button>`).join("")}</span>` : "")
+    + `<button data-bar="glow"${S.glow ? ' class="on"' : ""}${S.before ? " disabled" : ""} title="Подсветить новое и переставленное, показать убранное">Новое</button>`
+    + `<button data-bar="close" title="Выйти из предпросмотра">×</button>`;
+}
+$("#ideabar").addEventListener("click", async ev => {
+  const b = ev.target.closest("[data-bar]");
+  if (!b) return;
+  const a = b.dataset.bar;
+  if (a === "card") renderIdea();
+  else if (a === "close") closeIdea();
+  else if (a === "view") goView(Number(b.dataset.i));
+  else if (a === "glow") { S.glow = !S.glow; applyView(); ideaBar(); }
+  else if ((a === "before") !== S.before) {
+    S.before = a === "before";
+    ideaBar();
+    const onCard = !S.sel && !$("#card").hidden && !!$("#card form.idea-note");
+    await reload(S.sel?.id);
+    if (onCard) renderIdea();                              // ссылки на новое есть только в «Стало»
+  }
+});
+
+async function openIdea(key) {
+  const was = { idea: S.idea, before: S.before };
+  Object.assign(S, { idea: key, before: false });
+  try { await reload(null); } catch (err) {
+    Object.assign(S, was);
+    toast("Идея не открылась: " + err.message);
+    return;
+  }
+  if (S.view !== "unit") setView("unit", false);
+  if (S.ideaInfo?.views?.length) goView(0);
+  else if (S.ideaInfo?.about && S.by.has(S.ideaInfo.about.id)) select(S.ideaInfo.about.id);
+  if (matchMedia("(max-width: 720px)").matches) $("#card").hidden = true;   // на телефоне сначала сцена: описание — по названию
+  else renderIdea();
+  ideaBar();
+  setHash();
+}
+
+// ракурс идеи: срез, угол зрения, камера. fit — ширина, которая должна войти в кадр: на узком экране камера отходит
+// назад по лучу, а у вида изнутри (задан fov) назад не отойти — за спиной стена, поэтому шире угол (до 100°)
+function goView(i) {
+  const v = S.ideaInfo?.views?.[i];
+  if (!v) return;
+  S.ideaView = i;
+  if (v.cut != null && v.cut !== S.cut) { S.cut = v.cut; applyView(); }
+  const eye = new THREE.Vector3(...v.eye), at = new THREE.Vector3(...v.at), d = eye.distanceTo(at);
+  const need = f => v.fit * 0.55 / Math.tan(Math.atan(Math.tan(THREE.MathUtils.degToRad(f / 2)) * camera.aspect));
+  let fov = v.fov || FOV, to = eye;
+  if (v.fit && v.fov) while (need(fov) > d && fov < 100) fov += 2;
+  else if (v.fit && need(fov) > d) to = at.clone().add(eye.clone().sub(at).multiplyScalar(need(fov) / d));
+  camera.fov = fov;
+  camera.updateProjectionMatrix();
+  fly(to, at);
+  ideaBar();
+}
+
+async function closeIdea() {
+  Object.assign(S, { idea: null, ideaInfo: null, before: false });
+  if (camera.fov !== FOV) { camera.fov = FOV; camera.updateProjectionMatrix(); }
+  ideaBar();
+  $("#card").hidden = true;
+  await reload(null);
+  setHash();
+}
+
 // ── поиск ───────────────────────────────────────────────────────────────────
 const q = $("#q"), res = $("#results");
 let qt = 0, qseq = 0;
@@ -1709,6 +1929,7 @@ document.querySelectorAll("#views button").forEach(b => b.addEventListener("clic
 $("#t-cut").addEventListener("click", () => { S.cut = !S.cut; applyView(); });
 $("#t-mep").addEventListener("click", () => { S.mep = !S.mep; applyView(); });
 $("#t-tree").addEventListener("click", () => { if (S.view !== "unit") setView("unit"); renderTree(); });
+$("#t-ideas").addEventListener("click", () => { if (S.view !== "unit") setView("unit"); renderIdeas(); });
 
 // ── живые состояния ─────────────────────────────────────────────────────────
 function devColor(e) {
@@ -1801,6 +2022,7 @@ function connect() {
 function setHash() {
   const p = new URLSearchParams();
   if (S.view !== "unit") p.set("v", S.view);
+  if (S.idea) p.set("i", S.idea);
   if (S.sel) p.set("e", S.sel.key || S.sel.id);
   const h = p.toString();
   history.replaceState(null, "", h ? "#" + h : location.pathname + location.search);
@@ -1808,7 +2030,7 @@ function setHash() {
 
 async function reload(keepId, flyTo = false) {
   const cam = { p: camera.position.clone(), t: controls.target.clone() };
-  const data = await api("api/twin");
+  const data = await api(twinUrl());
   index(data);
   build();
   camera.position.copy(cam.p);
@@ -1833,8 +2055,10 @@ async function start() {
     const want = p.get("e");
     if (want) { const e = S.by.get(want) || S.data.entities.find(x => x.key === want); if (e) select(e.id); }
     if (p.get("q")) { q.value = p.get("q"); doSearch(); }
+    if (p.get("i") && !TV) await openIdea(p.get("i"));    // ссылка на идею: сразу предпросмотр
     connect();
     if (TV) { controls.enabled = false; resize(); if (QS.get("autoplay") === "1") director.play({ op: "overview" }); }
+    await meshesLoaded();
     window.cherrybim.ready = true;
   } catch (err) {
     $("#stxt").textContent = "Не загрузилось: " + err.message;

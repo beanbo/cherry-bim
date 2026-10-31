@@ -6,7 +6,7 @@
 Один процесс отдаёт:
 - /            просмотрщик (static/), относительные адреса — работает и под ingress HA;
 - /api/...     двойник, поиск, вещи, документы (ссылки и локальные копии), живые состояния HA, свет и пылесос,
-               фото → вещи;
+               фото → вещи, идеи (вариант «как будет», статус и заметки);
 - /mcp         MCP (streamable HTTP, без сессий): найти, что внутри, положить, переложить, вычеркнуть, документы.
 Вход только с адресов из --allow: под ingress это Supervisor и ядро HA.
 """
@@ -35,6 +35,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from ..docs import DOC_TYPES, INHERITED, DocError, fetch, html_copy, sniff, title_of
+from ..ideas import STATUSES
 from ..kinds import lookup
 from ..model import Kind, Privacy
 from ..plan import render_plan
@@ -178,11 +179,15 @@ class Server:
         return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
 
     async def api_twin(self, request: Request):
-        snap = self.store.snapshot()
+        idea = request.query_params.get("idea")             # вариант «как будет» по идее
+        try:
+            snap = self.store.idea_snapshot(idea) if idea else self.store.snapshot()
+        except StoreError as e:
+            return JSONResponse({"error": str(e)}, status_code=404 if str(e).startswith("нет идеи") else 400)
         snap["ha"] = self.ha_status()
         snap["features"] = {"photos": bool(self.media_dir and self.ai_task and self.ha.enabled),
                             "vacuum": bool(self.vacuum and self.ha.enabled), "toggle": self.ha.enabled,
-                            "show": self.can_show, "docs": True}
+                            "show": self.can_show, "docs": True, "ideas": self.store.ideas_count()}
         snap["doc_types"] = DOC_TYPES
         snap["doc_inherited"] = sorted(INHERITED)
         snap["states"] = self.states()
@@ -222,6 +227,14 @@ class Server:
 
     async def api_item_delete(self, request: Request):
         return self._guard(lambda: {"removed": self.store.remove_item(request.path_params["ref"], by=_user(request))})
+
+    async def api_ideas(self, request: Request):
+        return JSONResponse({"ideas": self.store.ideas_list(), "statuses": STATUSES})
+
+    async def api_idea_set(self, request: Request):
+        body = await request.json()
+        return self._guard(lambda: self.store.set_idea(request.path_params["key"], status=body.get("status"),
+                                                       note=body.get("note"), by=_user(request)))
 
     async def api_states(self, request: Request):
         return JSONResponse({"ha": self.ha_status(), "states": self.states()})
@@ -293,6 +306,15 @@ class Server:
         if mime != "application/pdf":                    # встроенный просмотрщик PDF в песочнице не открывается
             headers["Content-Security-Policy"] = "sandbox"
         return FileResponse(path, media_type=mime, headers=headers)
+
+    async def api_mesh(self, request: Request):
+        """Готовая модель сущности (GLB). ?idea= — сущность из варианта идеи."""
+        try:
+            path = self.store.mesh_file(request.path_params["ref"], request.query_params.get("idea") or None)
+        except StoreError as e:
+            return JSONResponse({"error": str(e)}, status_code=404)
+        return FileResponse(path, media_type="model/gltf-binary",
+                            headers={"Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff"})
 
     async def api_docs_of(self, request: Request):
         return self._guard(lambda: self.store.docs_of(request.path_params["ref"]))
@@ -577,6 +599,8 @@ class Server:
             Route("/api/items", self.api_items, methods=["POST"]),
             Route("/api/items/{ref}", self.api_items, methods=["PATCH"]),
             Route("/api/items/{ref}", self.api_item_delete, methods=["DELETE"]),
+            Route("/api/ideas", self.api_ideas),
+            Route("/api/ideas/{key}", self.api_idea_set, methods=["POST"]),
             Route("/api/states", self.api_states),
             Route("/api/call", self.api_call, methods=["POST"]),
             Route("/api/vacuum", self.api_vacuum, methods=["POST"]),
@@ -585,6 +609,7 @@ class Server:
             Route("/api/docs/{ref}", self.api_doc_delete, methods=["DELETE"]),
             Route("/api/docs/{ref}", self.api_docs_of),
             Route("/api/doc/{ref}", self.api_doc_file),
+            Route("/api/mesh/{ref}", self.api_mesh),
             Route("/api/plan.png", self.api_plan),
             Route("/api/show", self.api_show, methods=["POST"]),
             WebSocketRoute("/api/live", self.live),
@@ -698,6 +723,9 @@ def main(argv=None) -> None:
     ap.add_argument("--data", default=env("CHERRYBIM_DATA", "data"), help="папка для вещей (items.twin.json)")
     ap.add_argument("--media", default=env("CHERRYBIM_MEDIA"), help="папка медиа HA для фото (/media/cherrybim)")
     ap.add_argument("--docs", default=env("CHERRYBIM_DOCS"), help="папка копий документов (по умолчанию DATA/docs)")
+    ap.add_argument("--ideas", default=env("CHERRYBIM_IDEAS"), help="папка идей *.idea.json (по умолчанию DATA/ideas)")
+    ap.add_argument("--assets", default=env("CHERRYBIM_ASSETS"),
+                    help="папка готовых 3D-моделей *.glb (по умолчанию DATA/assets)")
     ap.add_argument("--ai-task", default=env("CHERRYBIM_AI_TASK"), help="сущность ai_task для фото → вещи")
     ap.add_argument("--audience", default=env("CHERRYBIM_AUDIENCE", "household"), choices=[p.value for p in Privacy])
     ap.add_argument("--host", default=env("CHERRYBIM_HOST", "0.0.0.0"))
@@ -709,7 +737,7 @@ def main(argv=None) -> None:
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     warnings.filterwarnings("ignore", message=".*incomplete definition.*")    # шум pydantic-settings из mcp
-    store = Store(a.packages, a.data, Privacy(a.audience), docs_dir=a.docs)
+    store = Store(a.packages, a.data, Privacy(a.audience), docs_dir=a.docs, ideas_dir=a.ideas, assets_dir=a.assets)
     srv = Server(store, HA(), media_dir=a.media, ai_task=a.ai_task, mcp_name=a.mcp_name, allow=a.allow,
                  show_script=a.show_script)
     log.info("пакетов %d, сущностей %d, вещей %d", len(store.base), len(store.twin.by_id), len(store.items.entities))
