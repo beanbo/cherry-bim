@@ -359,7 +359,8 @@ def test_page_copies_utf8_and_fast():
 
 
 def test_bad_request_bodies_are_400_not_500(client):
-    for method, url in (("post", "/api/items"), ("patch", "/api/items/x"), ("post", "/api/call"), ("post", "/api/show")):
+    for method, url in (("post", "/api/items"), ("patch", "/api/items/x"), ("post", "/api/call"), ("post", "/api/show"),
+                        ("post", "/api/ideas/x")):
         r = getattr(client, method)(url, content=b"{not json", headers={"content-type": "application/json"})
         assert r.status_code == 400, (url, r.text)
         r = getattr(client, method)(url, json=["a", "list"])

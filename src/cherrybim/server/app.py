@@ -232,7 +232,9 @@ class Server:
         return JSONResponse({"ideas": self.store.ideas_list(), "statuses": STATUSES})
 
     async def api_idea_set(self, request: Request):
-        body = await request.json()
+        body = await _json_body(request)
+        if body is None:
+            return _bad_json()
         return self._guard(lambda: self.store.set_idea(request.path_params["key"], status=body.get("status"),
                                                        note=body.get("note"), by=_user(request)))
 
