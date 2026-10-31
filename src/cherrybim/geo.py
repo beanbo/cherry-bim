@@ -82,6 +82,8 @@ def footprint(polys: list[list[tuple[float, float]]], res: float = 0.05, close: 
             loop.append(nxt)
             nxt = edges.pop(nxt)
         loops.append(loop)
+    if not loops:                                         # многоугольники без площади (все точки на прямой)
+        return []
     loop = max(loops, key=len)
     pts = [loop[k] for k in range(len(loop))
            if (loop[k - 1][0] - loop[k][0]) * (loop[(k + 1) % len(loop)][1] - loop[k][1])

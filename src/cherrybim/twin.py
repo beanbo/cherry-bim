@@ -24,6 +24,13 @@ class Twin:
                 self.by_id[e.id] = e
                 self.pkg_of[e.id] = pkg
         self.by_key = {e.key: e for e in self.by_id.values() if e.key}
+        for e in self.by_id.values():                       # цикл в parent повесил бы ancestors и privacy
+            seen, p = {e.id}, e.parent
+            while p in self.by_id:
+                if p in seen:
+                    raise ValueError(f"цикл во вложенности: {e.name} ({e.id})")
+                seen.add(p)
+                p = self.by_id[p].parent
         self.kids: dict[str, list[Entity]] = {}
         for e in self.by_id.values():
             if e.parent:

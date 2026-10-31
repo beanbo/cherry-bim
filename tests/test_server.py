@@ -358,6 +358,68 @@ def test_page_copies_utf8_and_fast():
     assert time.time() - t < 2
 
 
+def test_bad_request_bodies_are_400_not_500(client):
+    for method, url in (("post", "/api/items"), ("patch", "/api/items/x"), ("post", "/api/call"), ("post", "/api/show"),
+                        ("post", "/api/ideas/x")):
+        r = getattr(client, method)(url, content=b"{not json", headers={"content-type": "application/json"})
+        assert r.status_code == 400, (url, r.text)
+        r = getattr(client, method)(url, json=["a", "list"])
+        assert r.status_code == 400, (url, r.text)
+    assert client.post("/api/call", json={"entity_id": 5}).status_code == 403
+    assert client.get("/api/search", params={"q": "дрель", "limit": "много"}).status_code == 400
+    assert len(client.get("/api/search", params={"q": "ящик", "limit": "-5"}).json()) == 1
+
+
+def test_add_item_validates_fields(client, store):
+    n = len(store.items.entities)
+    for body in ({"name": "Скотч", "place": "ящик 2", "tags": "один"}, {"name": "Скотч", "place": "ящик 2", "qty": "3"},
+                 {"name": "Скотч", "place": "ящик 2", "qty": True}, {"name": "Скотч", "place": ["ящик 2"]},
+                 {"name": 7, "place": "ящик 2"}, {"name": "Скотч", "place": "ящик 2", "note": {"x": 1}}):
+        r = client.post("/api/items", json=body)
+        assert r.status_code == 400, (body, r.text)
+    assert len(store.items.entities) == n
+    r = client.post("/api/items", json={"name": "Скотч", "place": "ящик 2", "origin": {"x": 1}, "qty": 2.5})
+    assert r.status_code == 200, r.text
+    iid = r.json()["id"]
+    assert client.patch(f"/api/items/{iid}", json={"qty": "много"}).status_code == 400
+    assert client.patch(f"/api/items/{iid}", json={"qty": None}).json()["props"].get("qty") is None
+
+
+def test_upload_size_limit_is_enforced(client, monkeypatch):
+    import cherrybim.server.app as app_mod
+    monkeypatch.setattr(app_mod, "MAX_DOC", 100)
+    r = client.post("/api/docs", params={"to": "шкаф", "filename": "a.bin"}, content=b"x" * 101,
+                    headers={"content-type": "application/octet-stream"})
+    assert r.status_code == 400 and "больше" in r.json()["error"]
+
+    def chunks():                                      # без Content-Length: размер считается по ходу чтения
+        for _ in range(5):
+            yield b"x" * 40
+    r = client.post("/api/docs", params={"to": "шкаф", "filename": "a.bin"}, content=chunks(),
+                    headers={"content-type": "application/octet-stream"})
+    assert r.status_code == 400
+
+
+def test_vacuum_bad_target_and_degenerate_affine(store):
+    unit = store.twin.by_key["kv12"]
+    vac = Entity(id=make_id("test", "vac"), key="kv12.vac", kind=Kind.device, type="vacuum", name="Пылесос",
+                 parent=unit.id, geom=Point(),
+                 bind={"ha.entity": ["vacuum.robot"], "dreame.camera": "camera.robot_map",
+                       "dreame.affine": {"frame": "kv12", "X": [0, 0, 1], "Y": [0, 0, 1]}})
+    extra = Package(id=make_id("test", "pkg"), name="vac", root=unit.id, privacy="household", entities=[vac])
+    (store.packages_dir / "vac.twin.json").write_text(extra.model_dump_json(by_alias=True), encoding="utf-8")
+    store.reload()
+    srv = Server(store, HA(url="", token=""))
+    state = {"state": "x", "attributes": {"vacuum_position": {"x": 0, "y": 0}}}
+    assert "pose" not in srv._decorate("camera.robot_map", state)      # вырожденная привязка — без позы, без падения
+    with TestClient(srv.app(), client=("127.0.0.1", 1)) as c:
+        for at in (None, ["a", "b"], [1], [float("nan"), 0]):
+            body = {"do": "goto"} | ({"at": at} if at is not None else {})
+            r = c.post("/api/vacuum", content=json.dumps(body).replace("NaN", "NaN"),
+                       headers={"content-type": "application/json"})
+            assert r.status_code == 400, (at, r.text)
+
+
 def _idea(store, key="polka", **extra):
     store.ideas_dir.mkdir(parents=True, exist_ok=True)
     raw = {"key": key, "title": "Полка над столом", "summary": "Кратко", "about": "kv12.bedroom",
