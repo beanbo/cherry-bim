@@ -275,6 +275,11 @@
    "ifc": "IfcFurniture",
    "ifc_type": "USERDEFINED"
   },
+  "organizer": {
+   "ru": "органайзер с ящиками",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
   "*": {
    "ru": "мебель",
    "ifc": "IfcFurniture",
@@ -309,6 +314,11 @@
   },
   "box": {
    "ru": "коробка",
+   "ifc": "IfcFurniture",
+   "ifc_type": "USERDEFINED"
+  },
+  "cell": {
+   "ru": "отсек ящика",
    "ifc": "IfcFurniture",
    "ifc_type": "USERDEFINED"
   },

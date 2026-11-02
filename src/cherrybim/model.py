@@ -124,7 +124,7 @@ class Source(BaseModel):
 class Ref(BaseModel):
     """Связь вне дерева вложенности."""
     model_config = ConfigDict(extra="forbid")
-    rel: str                   # feeds, controls, serves, adjacent, stacked_above, documented_by, finishes
+    rel: str                   # feeds, controls, serves, adjacent, stacked_above, stands_on, documented_by, finishes
     to: str                    # id сущности, в том числе из другого пакета
 
 

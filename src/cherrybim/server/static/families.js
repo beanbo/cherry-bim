@@ -692,6 +692,7 @@ fam("storage.*", ({ kit, e, env, size: [W, D, H], r }) => {
     if (kind === "rod") kit.rod(M.chrome, [0.005, D / 2, H - (r.rod_drop ?? 0.06)], [W - 0.005, D / 2, H - (r.rod_drop ?? 0.06)], 0.0125, 16);
     return;
   }
+  if (inModel(e, env)) return;                             // внутри готовой модели (стек ящиков): место видно в ней
   const yf = frontOffset(e, env) + (r.setback ?? 0);       // плоскость фасада мебели в системе места (render.setback — утоплен)
   const colors = { ...(fr.colors || {}), ...(r.colors || {}) };
   const frontMat = hex(colors.front, null) != null ? satinOf(colors.front, fr.finish)
@@ -759,6 +760,15 @@ function furnitureOf(e, env) {
   let p = env.by(e.parent);
   while (p && p.kind === "storage") p = env.by(p.parent);
   return p && p.kind === "furniture" ? p : null;
+}
+
+// место в ящике или мебели с готовой моделью (geom "mesh"): фасад, перегородки и дно уже есть в модели
+function inModel(e, env) {
+  for (let p = env.by(e.parent); p && (p.kind === "storage" || p.kind === "furniture"); p = env.by(p.parent)) {
+    if (p.geom?.type === "mesh") return true;
+    if (p.kind === "furniture") break;
+  }
+  return false;
 }
 
 // где у места хранения плоскость фасада мебели: сумма сдвигов по Y до мебели, со знаком минус

@@ -30,6 +30,11 @@
   <canvas id="c"></canvas>
   <div id="labels" aria-hidden="true"></div>
   <canvas id="dov" aria-hidden="true"></canvas>
+  <section id="peek" hidden aria-label="Предпросмотр">
+    <header><b></b><button data-peek="up" title="На уровень выше" hidden>↑</button><button data-peek="big" title="Крупнее или мельче">⤢</button><button data-peek="close" title="Закрыть">×</button></header>
+    <div class="view"><canvas></canvas><div class="tags"></div></div>
+    <p class="hint"></p>
+  </section>
 </main>
 <aside id="card" hidden></aside>
 <footer id="status"><span id="dot"></span><span id="stxt">загрузка…</span></footer>

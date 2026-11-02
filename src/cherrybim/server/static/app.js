@@ -16,6 +16,7 @@ import { M, pbr, hex } from "./materials.js";
 import { createDirector } from "./director.js";
 import { settleCoplanar } from "./coplanar.js";
 import { loadMesh } from "./mesh.js";
+import { createPeek } from "./peek.js";
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);                  // как в модели: Z вверх, метры
 
@@ -48,9 +49,9 @@ const VAC = { docked: "на базе", cleaning: "убирает", returning: "�
 const PLACE_KINDS = new Set(["storage", "furniture", "space", "unit", "item"]);
 const TOGGLE = new Set(["light", "switch", "fan"]);
 const REL = { feeds: "питает", controls: "управляет", serves: "обслуживает", supplied_by: "от", has_member: "в составе",
-  finishes: "отделка", stacked_above: "над" };
+  finishes: "отделка", stacked_above: "над", stands_on: "стоит на" };
 const REL_IN = { feeds: "питается от", controls: "управляется", serves: "обслуживается", supplied_by: "питает",
-  has_member: "входит в", stacked_above: "под" };
+  has_member: "входит в", stacked_above: "под", stands_on: "на нём стоит" };
 const PROP = { number: "номер", area_brti: "площадь по БРТИ, м²", area_dev: "площадь по плану, м²", area_total_brti: "общая площадь, м²",
   area_living_brti: "жилая, м²", area_with_loggia: "с лоджией, м²", ceiling: "потолок, м", ceiling_slab: "до плиты, м",
   ceiling_type: "потолок", finishing: "отделка", interior_doors: "межкомнатные двери", note: "заметка", qty: "сколько",
@@ -68,7 +69,8 @@ const PROP = { number: "номер", area_brti: "площадь по БРТИ, �
   places: "мест", keys: "клавиш", height_m: "высота, м", as_built: "как сделано", copy_of: "копия страницы",
   kitchen_project: "проект кухни", outlets_by_kitchen_project: "розетки по проекту", electrics_bought_2024_08_16: "куплено 16.08.2024",
   mattress: "матрас", bed: "кровать", table: "стол", chairs: "стулья", surface: "поверхность", clear_height: "до потолка, м",
-  slab_height: "до плиты, м", valve: "клапан" };
+  slab_height: "до плиты, м", valve: "клапан", contents: "что лежит", facade: "этикетка", layout: "раскладка",
+  load: "нагрузка", free: "свободно", temporary: "временно" };
 const HIDDEN_PROPS = new Set(["render", "ids"]);          // подсказки для отрисовки — не для карточки; номера — отдельно
 const DOC_PROPS = new Set(["url", "file", "mime", "size", "sha256", "saved_at", "pages", "copy_of"]);   // у документа — своим блоком
 const FMT = { "application/pdf": "PDF", "text/html": "страница", "image/jpeg": "фото", "image/png": "картинка", "image/webp": "картинка" };
@@ -569,11 +571,11 @@ function makeObject(e, nextRoomColor) {
 // всю модель из props.render.colors.body (или "*"): модели для печати красят тем пластиком, каким напечатали
 const meshWaits = new Set();
 let viewTimer = 0;
+const meshUrl = e => "api/mesh/" + encodeURIComponent(e.id) + (S.data?.idea && S.idea ? "?idea=" + encodeURIComponent(S.idea) : "");
 function meshObject(e) {
   const o = new THREE.Group();
-  const url = "api/mesh/" + encodeURIComponent(e.id) + (S.data?.idea && S.idea ? "?idea=" + encodeURIComponent(S.idea) : "");
   const colors = e.props?.render?.colors || {}, paint = hex(colors.body ?? colors["*"], null);
-  const wait = loadMesh(url).then(parts => {
+  const wait = loadMesh(meshUrl(e)).then(parts => {
     for (const p of parts) {
       const m = new THREE.Mesh(p.geo, pbr(paint ?? p.color, { rough: p.rough, metal: p.metal }));
       m.castShadow = m.receiveShadow = true;
@@ -738,6 +740,7 @@ function skirting(space) {
 }
 
 function build() {
+  pulled = null;                                          // объекты строятся заново — на своих местах
   for (const o of S.obj.values()) o.traverse(c => c.geometry?.dispose());
   helpersLight.children.forEach(c => c.geometry.dispose());
   helpersLight.clear();
@@ -1097,9 +1100,11 @@ function frontView(target, furniture) {
   const c = new THREE.Box3().setFromObject(target).getCenter(new THREE.Vector3());
   const m = furniture.m;
   const front = new THREE.Vector3(-m[0][1], -m[1][1], 0).normalize();
-  const size = new THREE.Vector3(...furniture.geom.size).length();
-  const dist = Math.max(size * 1.6, 2.6);
-  const el = THREE.MathUtils.degToRad(22);
+  const size = furniture.geom?.type === "box" ? new THREE.Vector3(...furniture.geom.size).length()   // готовая модель — по ней самой
+    : new THREE.Box3().setFromObject(S.obj.get(furniture.id) || target).getSize(new THREE.Vector3()).length();
+  // мелочь (стек ящиков на столе) — ближе и сверху: видно, что внутри выдвинутого ящика
+  const dist = Math.max(size * 1.6, Math.min(2.6, size * 2.2 + 0.2));
+  const el = THREE.MathUtils.degToRad(size < 0.6 ? 40 : 22);
   fly(c.clone().add(front.multiplyScalar(Math.cos(el) * dist)).add(new THREE.Vector3(0, 0, Math.sin(el) * dist)), c);
 }
 
@@ -1257,7 +1262,7 @@ function meshFor(id) {
 }
 
 function related(e) {
-  const ids = new Set((e.refs || []).map(r => r.to));
+  const ids = new Set((e.refs || []).filter(r => r.rel !== "stands_on").map(r => r.to));   // стол под стеком не подсвечиваем
   for (const r of S.refsIn.get(e.id) || []) if (r.rel !== "finishes" || e.kind === "finish") ids.add(r.from);
   if (e.kind === "finish") for (const r of e.refs || []) ids.add(r.to);
   return [...ids].filter(i => S.by.has(i));
@@ -1314,21 +1319,50 @@ function seeThrough(e) {
   return holder;
 }
 
+// ящик с готовой моделью выезжает, когда выбран он сам или что-то в нём: render.pull — на сколько, м (ход до упора)
+let pulled = null;
+function pullOut(e) {
+  const dr = e && [e, ...ancestors(e.id)].find(a => a.kind === "storage" && a.props?.render?.pull > 0) || null;
+  if (dr === pulled) return;
+  if (pulled) slide(pulled, 0);
+  pulled = dr;
+  if (dr) slide(dr, dr.props.render.pull);
+}
+function slide(dr, d) {
+  const el = mat4(dr).elements, t = new THREE.Matrix4().makeTranslation(-el[4] * d, -el[5] * d, -el[6] * d);   // к фасаду (−Y ящика)
+  for (const x of [dr, ...descendants(dr.id)]) {
+    const o = S.obj.get(x.id);
+    if (!o) continue;
+    o.matrix.multiplyMatrices(t, o.userData.base);
+    o.updateMatrixWorld(true);
+  }
+  invalidate();
+}
+
+// окошко предпросмотра (peek.js): выбранный ящик или мебель с готовой моделью — крупно, места подписаны
+const peek = createPeek({ S, esc, ancestors, descendants, mat4, meshUrl, select: (id, o) => select(id, o), off: TV });
+
 function select(id, { fly: doFly = true } = {}) {
   clearHighlight();
   S.sel = id ? S.by.get(id) : null;
+  pullOut(S.sel);
+  peek.show(S.sel);
   if (!S.sel) { $("#card").hidden = true; setHash(); return; }
   const e = S.sel;
   if (e._inUnit && S.view !== "unit") setView("unit", false);
   else if (e._floor && S.view !== "house") setView("house", false);
   if (hiddenMep(e) && !S.mep) { S.mep = true; applyView(); }
   const target = meshFor(e.id);
+  if (target && doFly && meshWaits.size && new THREE.Box3().setFromObject(target).isEmpty()) {
+    // готовая модель ещё грузится (выбор по ссылке сразу после загрузки): камера — когда модели придут
+    meshesLoaded().then(() => { if (S.sel?.id === e.id) select(e.id); });
+  }
   for (const rid of related(e)) { const o = S.obj.get(rid); if (o && o !== target) highlight(o, COL.rel); }   // без подъёма к родителю: группа без геометрии не подсвечивает всю квартиру
   const holder = target && seeThrough(S.by.get(target.userData.id) || e);
   if (holder && S.obj.get(holder.id) === target) highlight(target, COL.sel, true);   // сам шкаф — прозрачным оранжевым
   else highlight(target, COL.sel);
   const shelf = target && [S.by.get(target.userData.id), ...ancestors(target.userData.id)].filter(a => ["storage", "furniture"].includes(a.kind)).pop();
-  if (target && doFly && shelf && e._inUnit && shelf.geom?.type === "box") frontView(target, shelf);
+  if (target && doFly && shelf && e._inUnit && ["box", "mesh"].includes(shelf.geom?.type)) frontView(target, shelf);
   else if (target && doFly) {
     const box = new THREE.Box3().setFromObject(target);
     if (!box.isEmpty()) {

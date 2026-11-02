@@ -53,7 +53,8 @@ MAX_DOC = 50 * 2 ** 20
 DOC_INLINE = {"application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp", "text/plain", "text/html",
               "image/svg+xml"}
 SHOW_WAIT = 3.0       # MCP-клиент HA обрывает вызов раньше 5 с (проверено 23.10.2026: 5,1 с — ошибка)
-REL_RU = {"finishes": "где", "serves": "обслуживает", "feeds": "питает", "controls": "управляет", "supplied_by": "от"}
+REL_RU = {"finishes": "где", "serves": "обслуживает", "feeds": "питает", "controls": "управляет", "supplied_by": "от",
+          "stands_on": "стоит на"}
 
 PHOTO_PROMPT = (
     "На фото — содержимое места хранения ({place}). Перечисли вещи, которые видны и которые потом будут искать. "
