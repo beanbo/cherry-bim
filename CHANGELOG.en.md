@@ -2,6 +2,18 @@
 
 # Changelog
 
+## 0.7.0 — 2026-11-03
+
+- **Preview in a small window** (`static/peek.js`): select a drawer, a shelf or a piece of furniture with its own model (`mesh` geometry) and storage locations inside, and a small window opens at the side with that model close up. The places inside are labelled (`props.render.label`: a short label, lines separated by `\n`, otherwise the name; a narrow place shows only the first line), the selected one is framed; a click on a place or its label selects it in the twin, "↑" goes to the furniture the place is in, "⤢" makes the window larger. A drawer is shown from above and slightly in front, like a layout diagram; furniture from the front. An item in a compartment opens its drawer. Own scene and own WebGL context (created on first show), models from the same cache; there is no window on the TV screen (`?tv=1`). On a phone the window is at the top and the card at the bottom.
+- A drawer with the `render.pull` hint (travel to the stop, m) slides out of its carcass while it or something in it is selected, together with its compartments and items.
+- Camera to furniture with its own model: the size is taken from the model (`mesh` has no dimensions in the data); small things (under 0.6 m diagonal) are shown closer and from above, so the inside of a pulled-out drawer is visible. A selection by link right after loading waits for the models; before, the camera looked at the origin.
+- Storage locations inside furniture or a drawer with its own model draw nothing (their front, partitions and bottom are in the model); the invisible volume for clicking remains.
+- Clicks: the invisible volume of a place (the top of a shelving unit, a section) no longer hides what is visible behind it and does not belong to it: an organizer on a pegboard above a shelving unit, or an item on the pegboard, is selected with the first click, also when the place itself is selected and highlighted. An item lying in that place is selected with the next click, as before.
+- The camera to a selection looks at the nearest furniture: an organizer on a pegboard and its drawers at the organizer, not the whole pegboard (a cabinet drawer at the cabinet, as before).
+- Types: furniture `organizer` (organizer with drawers), place `cell` (drawer compartment). The `stands_on` relation, "stands on" (a stack on a table): in the card, in `find` answers and in search by the name of what it stands on; when the standing thing is selected, what it stands on is not highlighted (otherwise the whole table under the stack turned blue).
+- The card labels the properties `contents` («что лежит»), `facade` («этикетка»), `layout` («раскладка»), `load` («нагрузка»), `free` («свободно»), `temporary` («временно») and the source `owner` («со слов хозяина», previously shown in Latin letters).
+- Fixed: the empty ideas bar always hung above the scene, because `display: flex` overrode the `hidden` attribute.
+
 ## 0.6.0 — 2026-11-01
 
 - **Ideas** (`cherrybim.ideas`): what could be added, rearranged or removed, as an `*.idea.json` file layered over the twin. `add`: new entities (the id is derived from the idea key); `change`: edits to existing ones (move, dimensions, properties); `remove`: what will be removed. The twin's packages do not change: `apply` assembles the "as it will be" variant, where every entity carries an `add`, `change` or `remove` mark. Schema: `schema/cherrybim-idea-0.1.schema.json`.

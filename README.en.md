@@ -6,7 +6,7 @@ An open core for residential digital twins: from a city block down to a shelf in
 
 *Open-source core for residential digital twins, from a city block down to a drawer. A compact JSON model aligned with IFC 4.3, GeoJSON/IMDF, CityJSON and Brick. Python (pydantic) is the source of truth, JSON Schema serves other languages, and IFC4 export goes through IfcOpenShell. Docs are in Russian.*
 
-> Status: v0.6, early version. The format may change before 1.0.
+> Status: v0.7, early version. The format may change before 1.0.
 
 ## Why
 
@@ -42,6 +42,7 @@ Scale:
 - **Furniture import** from OpenFurnitureMaker (a cabinet furniture designer): every drawer and compartment of a cabinet becomes a storage location. The `ofm` package must be on `sys.path`.
 - **Ideas** (`ideas`): what could be added, rearranged or removed, as an `*.idea.json` file layered over the twin. The viewer shows "Before / After" from preset viewpoints; the owners set a status and leave notes for the author. An idea does not change the twin's packages.
 - **Ready-made models**: an item with its own 3D model (a printed holder, a small pegboard bin) is drawn with that model, a GLB from the server's models folder. `io_mesh` converts 3D-printing models (3MF, STL) into such a GLB.
+- **Storage preview**: when you select furniture, a drawer or a shelf with its own model and places inside (a stack of drawers with partitions), a small window opens at the side: the model close up, compartments labelled, a click on a compartment selects it; the selected drawer slides out of its carcass.
 - **Furniture from BAZIS-Mebelshchik**: the script `tools/bazis/cherrybim-export.js` exports a `.b3d` model (panels with cutouts, hinges, drawer runners, handle holes), and `io_bazis` builds from it part-by-part furniture, hinged doors, drawers, handles and storage locations per carcass cell.
 
 ## Quick start
