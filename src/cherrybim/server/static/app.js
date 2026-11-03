@@ -1396,7 +1396,7 @@ function fmt(v) {
   return esc(v);
 }
 const ORIGIN = { manual: "записано вручную", voice: "записано голосом", photo: "по фото", ofm: "OpenFurnitureMaker",
-  dreame: "карта пылесоса", brti: "БРТИ", osm: "OpenStreetMap", ha: "Home Assistant", measured: "замер" };
+  dreame: "карта пылесоса", brti: "БРТИ", osm: "OpenStreetMap", ha: "Home Assistant", measured: "замер", owner: "со слов хозяина" };
 function srcText(s) {
   const acc = s.acc != null ? ` ±${s.acc >= 1 ? s.acc + " м" : Math.round(s.acc * 100) + " см"}` : "";
   const from = ORIGIN[s.from] || s.from.replace(/^project:/, "проект ").replace("zastroyshchik", "план застройщика");
