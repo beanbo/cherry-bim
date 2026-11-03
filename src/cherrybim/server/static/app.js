@@ -1238,6 +1238,16 @@ canvas.addEventListener("pointerup", ev => {
   let h = hits[0];
   const big = x => { const e = S.by.get(x.object.userData.id); return e && ["space", "wall", "section", "building", "feature"].includes(e.kind); };
   if (big(h)) { const small = hits.find(x => !big(x) && x.distance - h.distance < 0.35); if (small) h = small; }
+  // невидимый объём места (верх стеллажа, секция) не заслоняет то, что видно в нём, но к нему не относится: органайзер на
+  // доске над стеллажом берётся сразу, а вещь, лежащая в самом месте, — как раньше, следующим кликом
+  const pickVolume = o => (o.userData.mat0 || o.material) === PICK;   // и когда место выбрано и подсвечено
+  if (pickVolume(h.object)) {
+    const id = h.object.userData.id, box = new THREE.Box3().setFromObject(h.object).expandByScalar(0.002);
+    const kin = x => x === id || ancestors(x).some(a => a.id === id) || ancestors(id).some(a => a.id === x);
+    const seen = hits.find(x => !pickVolume(x.object) && S.by.has(x.object.userData.id) && !big(x) &&
+      !kin(x.object.userData.id) && box.containsPoint(x.point));
+    if (seen) h = seen;
+  }
   // шкаф → секция → ящик: каждый следующий клик по тому же месту — на уровень глубже
   const chain = [h];
   for (const x of hits) {
@@ -1361,7 +1371,9 @@ function select(id, { fly: doFly = true } = {}) {
   const holder = target && seeThrough(S.by.get(target.userData.id) || e);
   if (holder && S.obj.get(holder.id) === target) highlight(target, COL.sel, true);   // сам шкаф — прозрачным оранжевым
   else highlight(target, COL.sel);
-  const shelf = target && [S.by.get(target.userData.id), ...ancestors(target.userData.id)].filter(a => ["storage", "furniture"].includes(a.kind)).pop();
+  // смотрим на ближнюю мебель: ящик шкафа — на шкаф, органайзер на доске и его ящик — на органайзер, а не на всю доску
+  const chain = target ? [S.by.get(target.userData.id), ...ancestors(target.userData.id)].filter(a => ["storage", "furniture"].includes(a?.kind)) : [];
+  const shelf = chain.find(a => a.kind === "furniture") || chain.pop();
   if (target && doFly && shelf && e._inUnit && ["box", "mesh"].includes(shelf.geom?.type)) frontView(target, shelf);
   else if (target && doFly) {
     const box = new THREE.Box3().setFromObject(target);
